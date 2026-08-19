@@ -1,0 +1,19 @@
+# ค่าลับ — ห้าม commit เด็ดขาด
+config/jarvis.env
+*.env
+!config/jarvis.env.example
+.env
+
+# ของ Hermes ที่ไม่ควรเข้า repo
+.hermes/
+*.db
+*.db-wal
+*.db-shm
+
+# ทั่วไป
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.log
+.DS_Store
