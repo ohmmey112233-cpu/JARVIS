@@ -23,8 +23,10 @@
 | 10 | `scripts/gate-trial-teardown.sh` **ลบเฉพาะ job ของตัวเอง** | ทดสอบกับ 3 job → ลบ `jarvis-gate-*` 2 ตัว เหลือ job อื่นไว้ครบ |
 | 11 | `~/.hermes/.env` และ `~/.hermes/config.yaml` คือที่เก็บจริง | `hermes config env-path` / `config path` |
 | 12 | ต้องมี extras `anthropic` + `messaging` ถึงจะใช้ Claude ตรงและ Telegram ได้ | `pyproject.toml` — `anthropic = ["anthropic==0.87.0"]` และ `messaging` มี `python-telegram-bot` (สคริปต์ขั้นที่ 1 เช็คและเติมให้อัตโนมัติ) |
+| 13 | `scripts/00-digitalocean-prep.sh` รันจบครบทุกขั้นและ **idempotent** | รันจริง 2 รอบบน Ubuntu 24.04 — สร้าง swap 2GB, ตั้ง timezone เป็น Asia/Bangkok, ลงเครื่องมือพื้นฐาน, สร้าง user `jarvis` เข้ากลุ่ม sudo; รอบสองตรวจเจอว่าทำไปแล้วทุกข้อและข้ามให้ |
+| 14 | ตั้ง timezone ได้แม้ไม่มี systemd | เครื่องทดสอบไม่มี systemd เป็น PID 1 → `timedatectl` ใช้ไม่ได้ สคริปต์ตกไปใช้ `/etc/localtime` แทนแล้วได้ `23:15 +07` ถูกต้อง |
 
-### บั๊ก 3 ตัวที่เจอตอนทดสอบ และแก้แล้ว
+### บั๊ก 5 ตัวที่เจอตอนทดสอบ และแก้แล้ว
 
 1. **`verify-phase0b.sh` รายงานว่า gateway รันอยู่ทั้งที่ไม่ได้รัน**
    ข้อความจริงคือ `Gateway is not running` ซึ่งมีคำว่า `running` อยู่ด้วย — grep เดิมเลยจับติด
@@ -37,7 +39,15 @@
 3. **`$USER` ทำสคริปต์ตายกลางคัน** ในสภาพแวดล้อมที่ไม่ได้ตั้งตัวแปรนี้ (เจอตอนรันผ่าน systemd/cron ได้)
    *แก้:* ใช้ `WHOAMI="${USER:-$(id -un)}"`
 
-ทั้งสามตัวถ้าไม่ได้รันจริงจะไม่มีทางเจอ — โดยเฉพาะข้อ 1 และ 2 ที่ "ดูเหมือนสำเร็จ" ทั้งที่ผิด
+4. **`$HERMES_SRC[anthropic,messaging]`** — bash อ่าน `$VAR[...]` เป็น array expansion (shellcheck SC1087 จับได้)
+   *แก้:* ใส่วงเล็บปีกกา `${HERMES_SRC}[...]`
+
+5. **ทางติดตั้งสำรองจะตายก่อนสร้าง symlink** — `setup-hermes.sh` ของ Hermes มี `read -p` 2 จุด
+   และใช้ `set -e` ถ้าป้อน `/dev/null` เข้าไป `read` จะคืนค่า non-zero แล้วสคริปต์ตายที่บรรทัด 280
+   ทั้งที่ symlink อยู่บรรทัด 354 → จะไม่มีคำสั่ง `hermes` ให้ใช้
+   *แก้:* ลง ripgrep ไว้ก่อนให้มันข้ามคำถาม + ป้อน `n` แทน `/dev/null` + สร้าง symlink เองซ้ำถ้ายังไม่มี
+
+ทั้งห้าตัวถ้าไม่ได้รันจริงจะไม่มีทางเจอ — โดยเฉพาะข้อ 1, 2 และ 5 ที่ "ดูเหมือนสำเร็จ" ทั้งที่ผิด
 
 ---
 
@@ -52,6 +62,8 @@
 | systemd service + lingering | container ทดสอบไม่มี systemd แบบเต็ม | ขั้นที่ 3 + `verify-phase0b.sh` ข้อ 6 |
 | digest ยิงจริงตอน 06:20 | ต้องรอเวลาจริง | gate trial ข้อ 2 (3 เช้าติด) |
 | installer ทางการ (`install.sh`) | เครื่องทดสอบต่อ `hermes-agent.nousresearch.com` ไม่ได้ (network policy) | ขั้นที่ 1 — **มี fallback ติดตั้งจาก source ให้แล้ว ถ้า installer ล่ม** |
+| firewall (ufw) และ lingering | เครื่องทดสอบไม่มี ufw และไม่มี systemd — สคริปต์ข้ามให้เองพร้อมเตือน | `00-digitalocean-prep.sh` + `verify-phase0b.sh` ข้อ 6 |
+| ราคา droplet ของ DigitalOcean | เครื่องทดสอบต่อ digitalocean.com ไม่ได้ (network policy) — ราคาในเอกสารมาจากความรู้เดิม | **เช็คหน้า Droplet Pricing เองก่อนกดสร้าง** |
 | คุณภาพภาษาไทยผ่าน Telegram | ต้องเห็นบนหน้าจอ Telegram จริง | gate trial ข้อ 1 |
 | ความจำ CRUD ผ่านแชท | ต้องคุยกับบอทจริง | gate trial ข้อ 3 |
 

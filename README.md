@@ -25,7 +25,7 @@
 
 | อย่าง | รายละเอียด |
 |---|---|
-| VPS | Ubuntu 22.04/24.04, **RAM ≥1GB** (2GB สบายกว่า), ดิสก์ว่าง ≥3GB, สิงคโปร์ ~$5-10/เดือน |
+| VPS | Ubuntu 24.04 LTS, **RAM ≥1GB**, ดิสก์ว่าง ≥3GB, region สิงคโปร์ ~$6/เดือน<br>ใช้ DigitalOcean → มีคู่มือทีละคลิกที่ [`docs/digitalocean-setup.md`](docs/digitalocean-setup.md) |
 | user ธรรมดา | ห้ามติดตั้งด้วย root — `sudo adduser jarvis && sudo usermod -aG sudo jarvis` |
 | บัญชี Anthropic | มีเครดิตอยู่ — ⚠️ เคลียร์เรื่องผู้เปิดบัญชี/บัตรก่อน (H2 ใน red team) |
 | แอป Telegram | ใช้สร้างบอทและหา user ID |
@@ -34,11 +34,29 @@
 
 ## ขั้นตอน
 
-### เตรียม — ดึงโค้ดลง VPS
+### ขั้นที่ 0 — เตรียมเครื่อง (ครั้งเดียว รันในฐานะ root)
+
+**ใช้ DigitalOcean:** ทำตาม [`docs/digitalocean-setup.md`](docs/digitalocean-setup.md) ตั้งแต่สร้าง droplet
+ย่อคือหลัง `ssh root@<ip>` แล้วรัน:
 
 ```bash
-ssh jarvis@<ip-ของ-vps>
-git clone <url-ของ-repo-นี้> ~/jarvis && cd ~/jarvis
+apt-get update -qq && apt-get install -y -qq git
+git clone https://github.com/ohmmey112233-cpu/JARVIS.git /root/jarvis
+cd /root/jarvis && git checkout claude/hermes-agent-phase-0b-upmjjr
+bash scripts/00-digitalocean-prep.sh
+```
+
+สร้าง swap 2GB (สำคัญมากบนเครื่อง 1GB) → ตั้ง timezone ไทย → สร้าง user `jarvis` →
+เปิด lingering → เปิด firewall รับเข้าเฉพาะ SSH
+
+**ใช้ VPS เจ้าอื่น:** สคริปต์นี้ใช้ได้กับ Ubuntu ทุกเจ้า (ไม่ได้ผูกกับ API ของ DO)
+หรือจะเตรียม user ธรรมดา + swap + timezone เองก็ได้ แล้วข้ามไปขั้นที่ 1
+
+### เตรียม — ดึงโค้ดลง VPS (ในฐานะ user ธรรมดา)
+
+```bash
+su - jarvis                       # หรือ ssh jarvis@<ip-ของ-vps> จากเครื่องตัวเอง
+git clone https://github.com/ohmmey112233-cpu/JARVIS.git ~/jarvis && cd ~/jarvis
 git checkout claude/hermes-agent-phase-0b-upmjjr
 ```
 
@@ -183,6 +201,7 @@ journalctl --user -u hermes-gateway -f --no-pager    # ดู log สด
 
 ```
 scripts/
+  00-digitalocean-prep.sh    เตรียม droplet: swap, timezone, user, firewall (รันเป็น root)
   01-install-hermes.sh       ติดตั้ง Hermes + ตั้ง timezone + บันทึกเวอร์ชัน
   02-configure-jarvis.sh     ตั้ง Claude เป็นโมเดลหลัก + เขียนค่าลับ Telegram
   03-start-gateway.sh        ติดตั้ง systemd service + เปิด lingering
@@ -192,6 +211,7 @@ scripts/
 config/
   jarvis.env.example         แม่แบบค่าลับ (คัดลอกเป็น jarvis.env แล้วกรอก)
 docs/
+  digitalocean-setup.md      คู่มือ DigitalOcean ทีละคลิก ตั้งแต่สร้าง droplet
   gate-trial.md              ชุดทดสอบ 3 ข้อ + ตารางกรอกผล + เกณฑ์ตัดสิน
   troubleshooting.md         อาการที่เจอบ่อยเรียงตามความถี่
   verification-log.md        บันทึกว่าอะไรถูกทดสอบจริงแล้วบ้าง
