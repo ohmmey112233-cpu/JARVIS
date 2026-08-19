@@ -37,6 +37,10 @@
 ### ขั้นที่ 0 — เตรียมเครื่อง (ครั้งเดียว รันในฐานะ root)
 
 **ใช้ DigitalOcean:** ทำตาม [`docs/digitalocean-setup.md`](docs/digitalocean-setup.md) ตั้งแต่สร้าง droplet
+
+> ⛔ ต้องเป็น **Droplets** เท่านั้น — ห้ามใช้ **App Platform** เพราะดิสก์เป็นแบบชั่วคราว
+> ความจำของ Hermes จะหายทุกครั้งที่ deploy (ถ้าเผลอเข้าไปจะเจอ `No components detected`
+> ซึ่งถูกต้องแล้ว ไม่ต้องแก้ repo) เหตุผลเต็มอยู่ในคู่มือ
 ย่อคือหลัง `ssh root@<ip>` แล้วรัน:
 
 ```bash

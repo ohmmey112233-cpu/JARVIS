@@ -5,6 +5,33 @@
 
 ---
 
+## ⛔ อ่านก่อน — ต้องใช้ Droplets ไม่ใช่ App Platform
+
+DigitalOcean มีบริการรันโค้ดหลายตัว ที่ต้องใช้คือ **Droplets** เท่านั้น
+
+ถ้าเผลอเข้าหน้า **Create an app** (App Platform) แล้วเลือก repo นี้ จะเจอ:
+
+> ❗ **No components detected:** Verify the repo contains supported file types, such as `package.json`, `requirements.txt`, or a Dockerfile.
+
+**นี่ไม่ใช่บั๊ก และไม่ต้องไปแก้ repo ให้มีไฟล์พวกนั้น** — repo นี้เป็นชุดสคริปต์ที่ไปติดตั้ง
+Hermes ลงบนเครื่อง ไม่ใช่ตัวแอปที่ App Platform จะเอาไป build ได้ App Platform
+มองหาแอปที่ build เป็น container ได้ พอไม่เจอก็เลยบอกว่าไม่มี component
+
+ถ้าอยู่หน้านั้นอยู่ ให้ออกมาเลย — ยังไม่ได้สร้างอะไร ยังไม่เสียเงิน
+
+### ทำไม App Platform ใช้กับ Hermes ไม่ได้เลย
+
+| เหตุผล | ผลที่ตามมา |
+|---|---|
+| **ดิสก์เป็นแบบชั่วคราว** — ทุกครั้งที่ deploy หรือ container รีสตาร์ท ไฟล์ที่เขียนไว้หายหมด | `~/.hermes/` ที่เก็บ SQLite, `MEMORY.md`, `USER.md` และรายการ cron จะถูกล้างทิ้ง — **gate trial ข้อ 3 (คุมความจำ) พังทันที** เพราะสิ่งที่สั่งให้จำหายทุกครั้งที่ระบบรีสตาร์ท |
+| ติดตั้งผ่าน installer ลง `$HOME` + venv | ออกแบบมาสำหรับเครื่อง VM ไม่ใช่ build pipeline ของ container |
+| gateway คุมทั้งแชทและ cron ในตัวเดียว ต้องรันยาวและใช้ systemd | สคริปต์ `03-start-gateway.sh` ใช้ `hermes gateway install` ซึ่งเป็น systemd service — App Platform ไม่มี systemd ให้ |
+| ต้อง SSH เข้าไปดู log และแก้ config | App Platform เข้าถึงเครื่องแบบนั้นไม่ได้ |
+
+Droplet คือเครื่อง Ubuntu จริงที่ SSH เข้าไปได้ ดิสก์อยู่ถาวร มี systemd ครบ — ตรงกับที่ spec เขียนไว้ว่า "Hermes Agent บน VPS"
+
+---
+
 ## ขั้นที่ 1 — สร้าง Droplet
 
 เข้า [cloud.digitalocean.com](https://cloud.digitalocean.com) → ปุ่ม **Create** มุมขวาบน → **Droplets**
@@ -153,6 +180,9 @@ bash scripts/gate-trial-setup.sh --smoke
 | **รวมฝั่ง DigitalOcean** | **~$6.2** |
 | Claude API | $2-10 ขึ้นกับการใช้และโมเดล |
 | **รวมทั้งหมด** | **~$8-16/เดือน** |
+
+> บัญชีใหม่มักได้ **Signup Credit $5** — ครอบคลุมค่า droplet เดือนแรกเกือบทั้งเดือน
+> เครดิตมีวันหมดอายุ เช็คได้ที่ **Billing** ในเมนูบัญชี
 
 spec ตั้งงบรวมไว้ **$7-20/เดือน** สำหรับ Phase 1-2 → **อยู่ในงบ**
 
