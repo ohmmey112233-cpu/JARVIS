@@ -127,8 +127,9 @@ dashboard อ่านจาก `core/` ได้โดยไม่มีทา�
 | ส่วน | สถานะ |
 |---|---|
 | โทรจองจริง (Twilio/Vapi/Botnoi) | ❌ `booking.py` บันทึกคำขอได้ แต่ยังโทรไม่ได้ — Phase 3 |
+| ประกอบ+ส่ง digest | ✅ `assemble.py` + `cli digest` + cron `--no-agent` — deterministic ทั้งเส้น ไม่ผ่าน LLM |
 | ต่อระบบบัญชีจริง | ❌ ด่านความปลอดภัยพร้อม แต่ยังไม่มี transport — Phase 2 (ต้องมี OAuth ก่อน) |
-| API เสริม digest (Routes/Weather/AQI/Calendar) | ❌ `DigestContext` รับค่าไว้แล้ว แต่ยังไม่มีตัวดึง |
+| API เสริม digest (Routes/Weather/AQI/Calendar) | ⚠️ `core/fetchers.py` เขียนแล้วแบบฉีด transport ได้ — **ตัวแปลง response ยังไม่เคยเจอ API จริง** ต้องตรวจ shape ตอนต่อจริงบน VPS |
 | LINE gateway | ❌ Phase 2 |
 | Home Assistant | ❌ Phase 5 (มีเงื่อนไข H6/H7 ต้องเคลียร์ก่อน) |
 | Sushiro | ❌ Phase 4 — แต่ `friday.is_in_chiang_mai_on_friday()` พร้อมให้เรียกแล้ว (H10) |
