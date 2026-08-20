@@ -29,16 +29,36 @@
 ไม่มีใครใช้ระบบและไม่ชนกับ digest (การจัดระเบียบความจำเกิดตอน 06:18 พร้อมรายงาน
 "ความฝัน" — สำรองก่อนหรือหลังไม่ต่างกัน เพราะ consolidation แค่ mark archived ไม่ลบจริง)
 
-คำสั่งที่แนะนำ (ส่งแจ้งเตือนเข้า Telegram **เฉพาะคืนที่ล้มเหลว** — คืนที่สำเร็จ
-stdout ว่าง Hermes จะไม่ส่งอะไร ไม่รบกวน และไม่กินโควตาข้อความ):
+ข้อจำกัดของ Hermes 0.20.4 ที่ต้องรู้ก่อน: `--no-agent` **ใช้ได้กับ `--script` เท่านั้น**
+(ส่งคำสั่ง shell เป็นข้อความตรงๆ ไม่ได้ — ตำแหน่งนั้นคือ prompt ของ LLM) และไฟล์
+สคริปต์ต้องอยู่ใต้ `~/.hermes/scripts/` เท่านั้น (ตัว scheduler บล็อก path นอกโฟลเดอร์นี้)
+จึงต้องสร้างสคริปต์ตัวกลางก่อนแล้วชี้ cron ไปที่มัน — แบบแผนเดียวกับที่
+`scripts/phase1-digests-setup.sh` ทำกับ digest
+
+สคริปต์ตัวกลางส่งแจ้งเตือนเข้า Telegram **เฉพาะคืนที่ล้มเหลว** — คืนที่สำเร็จ
+stdout ว่าง Hermes จะไม่ส่งอะไร ไม่รบกวน และไม่กินโควตาข้อความ:
 
 ```bash
+mkdir -p ~/.hermes/scripts ~/.jarvis
+cat > ~/.hermes/scripts/jarvis-nightly-backup.sh <<'EOF'
+#!/usr/bin/env bash
+# no-agent cron: Hermes เอา stdout ส่งเข้า Telegram ตรงๆ — stdout ว่าง = ไม่ส่ง
+# จึงพิมพ์ข้อความเฉพาะคืนที่ล้มเหลว (คืนที่สำเร็จ = เงียบ)
+set -uo pipefail
+LOG="$HOME/.jarvis/last-backup.log"
+RC=0
+bash "$HOME/jarvis/scripts/backup-jarvis.sh" >"$LOG" 2>&1 || RC=$?
+if [ "$RC" -ne 0 ]; then
+  echo "⚠ backup คืนนี้ล้มเหลว (exit $RC) — ssh เข้าไปดู $LOG"
+fi
+EOF
+
 hermes cron create "30 3 * * *" \
-  "bash \$HOME/jarvis/scripts/backup-jarvis.sh >\$HOME/.jarvis/last-backup.log 2>&1 || echo \"⚠ backup คืนนี้ล้มเหลว (exit \$?) — ssh เข้าไปดู ~/.jarvis/last-backup.log\"" \
-  --name jarvis-nightly-backup --no-agent --deliver telegram
+  --name jarvis-nightly-backup --no-agent \
+  --script "$HOME/.hermes/scripts/jarvis-nightly-backup.sh" --deliver telegram
 ```
 
-ถ้า clone repo ไว้ที่อื่นที่ไม่ใช่ `~/jarvis` ให้แก้ path ในคำสั่งตามจริง
+ถ้า clone repo ไว้ที่อื่นที่ไม่ใช่ `~/jarvis` ให้แก้ path ในสคริปต์ตัวกลางตามจริง
 ตรวจว่าตั้งติดแล้วและเวลาเป็นเวลาไทย:
 
 ```bash
@@ -194,6 +214,7 @@ rclone delete --min-age 60d r2:jarvis-backups/daily
 | backup | 3 | อัด tar ไม่สำเร็จ (เช็คพื้นที่ดิสก์) |
 | backup | 4 | ตั้ง `RCLONE_REMOTE` ไว้แต่อัปโหลดล้มเหลว (ไฟล์ local ยังอยู่) |
 | restore | 0 | สำเร็จ หรือผู้ใช้ยกเลิกเอง |
+| restore | 1 | เรียกใช้ผิด / หาไฟล์สำรองไม่เจอ |
 | restore | 2 | gateway ยังรันอยู่ — `hermes gateway stop` ก่อน (หรือ `--force`) |
 | restore | 3 | ไฟล์สำรองแตกไม่ออก/โครงสร้างผิด |
 | restore | 4 | integrity_check ไม่ผ่าน (ของเดิมยังอยู่ครบใน pre-restore) |
