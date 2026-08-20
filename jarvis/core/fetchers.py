@@ -37,7 +37,10 @@ from typing import Any
 from . import localdate
 from .db import PLACEHOLDERS
 
-__all__ = ["Transport", "fetch_extras", "BUFFER_MINUTES", "ROUND_TO_MINUTES"]
+__all__ = [
+    "Transport", "fetch_extras", "BUFFER_MINUTES", "ROUND_TO_MINUTES",
+    "MIN_ROUTING_DISTANCE_M",
+]
 
 # สัญญาที่ตรึงไว้ใน CONTRACTS.md งวดที่ 2 — (url, params) -> parsed JSON
 Transport = Callable[[str, Mapping[str, str]], Any]
@@ -49,6 +52,14 @@ Transport = Callable[[str, Mapping[str, str]], Any]
 # หน้าโรงเรียนมงฟอร์ตช่วง 07:20-07:40 ที่แกว่งวันต่อวัน — ข้อความบอกว่า
 # "ออก HH:MM ถึงสบายๆ" (kit หลักการข้อ 6) จึงต้องเผื่อให้ "สบายๆ" เป็นจริง
 BUFFER_MINUTES = 10
+
+# ใกล้กว่านี้ = ไม่ต้องถาม API เรื่องเวลาเดินทางเลย
+# หอกับโรงเรียนของโอมห่างกัน 165 เมตร (เดิน 2 นาที) การยิง Distance Matrix
+# ทุกเช้าเพื่อได้คำตอบว่า "1 นาที" คือเสียเงินและเสียเวลาเปล่า
+# เช็คระยะตรงจากพิกัดก่อน (ฟรี ไม่ต้องต่อเน็ต) แล้วค่อยตัดสินใจว่าจะยิงไหม
+# ผลพลอยได้ที่สำคัญ: Phase 1 ไม่ต้องใช้ GOOGLE_MAPS_API_KEY อีกต่อไป
+# ถ้าวันหน้าโอมย้ายหอ พิกัดเปลี่ยน ระบบจะกลับมายิง API เองโดยไม่ต้องแก้โค้ด
+MIN_ROUTING_DISTANCE_M = 1000
 
 # ปัดเวลาออกให้เป็นเลขกลมๆ — ดู _leave_by() ว่าทำไม
 ROUND_TO_MINUTES = 5
@@ -213,6 +224,53 @@ def _parse_travel_minutes(payload: Any) -> int | None:
     return None
 
 
+def _parse_latlng(value: str | None) -> tuple[float, float] | None:
+    """'18.7678368,99.0211007' → (lat, lng) — ไม่ใช่พิกัดก็คืน None เฉยๆ
+
+    ค่านี้อาจเป็นชื่อสถานที่ก็ได้ (ระบบยอมให้ใส่ได้ทั้งสองแบบ) จึงไม่ถือว่า
+    แกะไม่ออกเป็นข้อผิดพลาด
+    """
+    if not value or "," not in value:
+        return None
+    lat_text, _, lng_text = value.partition(",")
+    try:
+        lat, lng = float(lat_text.strip()), float(lng_text.strip())
+    except ValueError:
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return None
+    return lat, lng
+
+
+def _distance_m(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """ระยะตรงระหว่างสองพิกัด (เมตร) — haversine
+
+    ใช้แค่ตัดสินว่า "ใกล้เกินกว่าจะต้องถาม API ไหม" ไม่ได้เอาไปรายงานเป็นระยะทาง
+    จริง (ระยะตรงสั้นกว่าระยะถนนเสมอ) ความแม่นระดับนี้พอสำหรับการตัดสินใจนั้น
+    """
+    import math
+
+    (lat1, lng1), (lat2, lng2) = a, b
+    radius = 6_371_000
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * radius * math.asin(math.sqrt(h))
+
+
+def _too_close_to_route(origin: str, destination: str) -> bool:
+    """ต้นทางกับปลายทางใกล้กันเกินกว่าจะต้องถาม API ไหม
+
+    แกะพิกัดไม่ได้ทั้งคู่ (เป็นชื่อสถานที่) = ตอบว่าไม่ใกล้ ให้ยิงไปตามปกติ
+    เพราะเราไม่มีทางรู้ระยะโดยไม่ถาม
+    """
+    a, b = _parse_latlng(origin), _parse_latlng(destination)
+    if a is None or b is None:
+        return False
+    return _distance_m(a, b) < MIN_ROUTING_DISTANCE_M
+
+
 def _leave_by(prefs: Mapping[str, str], travel_minutes: int) -> str | None:
     """เวลาออกจากหอ = school_arrive_by − เวลาเดินทาง − BUFFER_MINUTES
 
@@ -251,6 +309,9 @@ def _fetch_travel(
     #  ที่เปิด Maps ดูเอง ซึ่ง checklist B4 บังคับว่าต้องตรง)
     origin = _pref(prefs, "dorm_latlng") or _pref(prefs, "dorm_address")
     destination = _pref(prefs, "school_latlng") or _pref(prefs, "school_address")
+    if origin and destination and _too_close_to_route(origin, destination):
+        # เดินถึงอยู่แล้ว — ไม่ต้องเสีย API call รายวันเพื่อยืนยันสิ่งที่รู้อยู่
+        return {}
     if not origin or not destination:
         # ที่อยู่ยังไม่กรอก — ยิง API ด้วยที่อยู่ว่างมีแต่จะได้ ZERO_RESULTS กลับมา
         return {}

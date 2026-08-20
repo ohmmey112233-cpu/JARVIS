@@ -457,3 +457,69 @@ class PurityTest(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class TooCloseToRouteTest(unittest.TestCase):
+    """หอห่างจากโรงเรียน 165 เมตร — ไม่ต้องยิง Distance Matrix ทุกเช้า
+
+    โอมเดินเองแล้วยืนยัน 2 นาที (20 ส.ค. 2026) ตัวเลข 12/15 นาทีใน kit
+    เขียนไว้ก่อนมีใครวัดจริง
+    """
+
+    DORM = "18.7678368,99.0211007"
+    SCHOOL = "18.7667810,99.0200037"
+    HOME = "18.4501443,98.7127309"
+
+    def test_แกะพิกัดได้(self) -> None:
+        self.assertEqual(fetchers._parse_latlng(self.DORM), (18.7678368, 99.0211007))
+
+    def test_แกะชื่อสถานที่ไม่ได้_คืน_None(self) -> None:
+        for bad in ("หอพักมงฟอร์ตเรสซิเดนซ์", "", None, "abc,def", "999,999"):
+            self.assertIsNone(fetchers._parse_latlng(bad), bad)
+
+    def test_ระยะหอถึงโรงเรียนราว_165_เมตร(self) -> None:
+        d = fetchers._distance_m((18.7678368, 99.0211007), (18.7667810, 99.0200037))
+        self.assertAlmostEqual(d, 165, delta=15)
+
+    def test_หอกับโรงเรียนถือว่าใกล้เกินกว่าจะยิง_API(self) -> None:
+        self.assertTrue(fetchers._too_close_to_route(self.DORM, self.SCHOOL))
+
+    def test_หอกับจอมทองไม่ใกล้(self) -> None:
+        self.assertFalse(fetchers._too_close_to_route(self.DORM, self.HOME))
+
+    def test_ชื่อสถานที่ล้วน_ต้องยิงตามปกติเพราะไม่รู้ระยะ(self) -> None:
+        self.assertFalse(fetchers._too_close_to_route("หอมงฟอร์ต", "โรงเรียนมงฟอร์ต"))
+
+    def test_fetch_extras_ไม่ยิง_API_เลยเมื่อใกล้(self) -> None:
+        calls: list[str] = []
+
+        def transport(url, params):
+            calls.append(url)
+            return {}
+
+        prefs = {
+            "dorm_latlng": self.DORM,
+            "school_latlng": self.SCHOOL,
+            "school_arrive_by": "07:35",
+        }
+        out = fetchers.fetch_extras(
+            prefs, transport=transport, env={"GOOGLE_MAPS_API_KEY": "x"}
+        )
+        self.assertEqual([c for c in calls if "distancematrix" in c], [])
+        self.assertNotIn("travel_minutes", out)
+        self.assertNotIn("leave_by", out)
+
+    def test_ย้ายไปไกลแล้วกลับมายิงเองโดยไม่ต้องแก้โค้ด(self) -> None:
+        calls: list[str] = []
+
+        def transport(url, params):
+            calls.append(url)
+            raise RuntimeError("พอแค่ดูว่ายิงไหม")
+
+        prefs = {
+            "dorm_latlng": self.HOME,          # จำลองว่าย้ายไปอยู่จอมทอง
+            "school_latlng": self.SCHOOL,
+            "school_arrive_by": "07:35",
+        }
+        fetchers.fetch_extras(prefs, transport=transport, env={"GOOGLE_MAPS_API_KEY": "x"})
+        self.assertTrue([c for c in calls if "distancematrix" in c])

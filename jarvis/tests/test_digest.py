@@ -495,3 +495,33 @@ class UnconfirmedFridayTest(unittest.TestCase):
         out = self._weekly(None)
         self.assertNotIn("ใช่ไหมครับ", out)
         self.assertNotIn("จองโรงแรม", out)
+
+
+class ShortWalkTest(unittest.TestCase):
+    """เดิน 2 นาทีถึงโรงเรียน → ไม่ต้องมีหัวข้อ 🚗 ในข้อความเช้า"""
+
+    def _morning(self, **kw) -> str:
+        return digest.render_morning(
+            digest.DigestContext(when=localdate.now(datetime(2026, 8, 24, 6, 20)), **kw)
+        )
+
+    def test_เดินทางสั้นมาก_ไม่พิมพ์หัวข้อเดินทางเลย(self) -> None:
+        out = self._morning(travel_minutes=2, leave_by="07:25")
+        self.assertNotIn("🚗", out)
+        self.assertNotIn("07:25", out)   # บรรทัด "ออก ..." ต้องหายไปด้วย
+        self.assertIn("อรุณสวัสดิ์", out)  # ที่เหลือยังครบ
+
+    def test_ขอบเกณฑ์(self) -> None:
+        self.assertNotIn("🚗", self._morning(travel_minutes=4))
+        self.assertIn("🚗", self._morning(travel_minutes=5))
+
+    def test_เดินทางไกลยังรายงานตามปกติ(self) -> None:
+        # ขา โรงเรียน→จอมทอง เย็นศุกร์ ยังเป็นการเดินทางจริงที่ต้องรู้
+        out = self._morning(travel_minutes=58, leave_by="16:30")
+        self.assertIn("🚗", out)
+        self.assertIn("58", out)
+
+    def test_ฝนยังเตือนให้พกร่ม_เพราะเดินไปโรงเรียน(self) -> None:
+        # เดินสั้นแต่ยังเปียกได้ — บรรทัดฝนสำคัญกว่าเดิมด้วยซ้ำ
+        out = self._morning(travel_minutes=2, rain_window="07:00-08:00")
+        self.assertIn("พกร่ม", out)
