@@ -39,8 +39,13 @@ NEXT_TUE = date(2026, 8, 25)
 class RoutineTestBase(unittest.TestCase):
     """DB ชั่วคราวที่ migrate + seed แล้ว 1 ชุดต่อ 1 เทสต์
 
-    seed ให้ diode/eyebrow มี last_done = NULL และ haircut = อังคาร มาแล้ว
-    (schema/002_seed.sql) เทสต์จึงเริ่มจากสภาพเดียวกับตอนติดตั้งจริงเสมอ
+    last_done ถูกล้างเป็น NULL ทุกแถวหลัง migrate เสมอ แล้วแต่ละเทสต์ค่อยตั้งค่าที่
+    ตัวเองต้องการเอง — เทสต์ในไฟล์นี้ตรวจ "ตรรกะของรอบ" ไม่ได้ตรวจว่า migration
+    ไหนใส่ค่าอะไรไว้ (นั่นเป็นหน้าที่ของ test_seed.py)
+
+    ทำไมต้องล้าง: migration ที่มาทีหลังมีสิทธิ์เติม last_done ของจริงลงไปได้ตามปกติ
+    (เช่น 003 ที่เก็บค่าที่โอมตอบมา) ถ้าเทสต์ยังอ่านค่าจาก seed ตรงๆ อยู่ มันจะพัง
+    หรือแย่กว่านั้นคือ "ผ่านทั้งที่ตรวจคนละเรื่อง" ทุกครั้งที่มีคนเพิ่มไฟล์ schema
     """
 
     def setUp(self) -> None:
@@ -48,6 +53,9 @@ class RoutineTestBase(unittest.TestCase):
         self.db_path = Path(self._tmp.name) / "jarvis-test.db"
         self.conn = db.connect(self.db_path)
         db.migrate(self.conn)
+        # จุดตั้งต้นที่เทสต์ทุกข้อในไฟล์นี้ตกลงกันไว้ = ยังไม่เคยทำสักอย่าง
+        self.conn.execute("UPDATE routines SET last_done = NULL")
+        self.conn.commit()
 
     def tearDown(self) -> None:
         self.conn.close()
@@ -174,6 +182,18 @@ class TestWeekdayRoutine(RoutineTestBase):
                 s = routines.status(self.conn, "haircut", day)
                 self.assertEqual(s.next_due, next_due)
                 self.assertEqual(s.days_until, days_until)
+
+    def test_notes_and_thai_name_are_carried_through(self) -> None:
+        """สรุปสัปดาห์ใน kit เขียนว่า "อ. — ✂️ ตัดผม ร้านเกษมเกษา (เย็น)"
+
+        ชื่อร้านมาจากคอลัมน์ notes ทางเดียว ถ้า RoutineStatus ไม่ขนมันมาด้วย
+        ข้อความจะเหลือแค่ "ตัดผม" โดยไม่มีอะไรพัง ไม่มีเทสต์ไหนฟ้อง
+        """
+        s = routines.status(self.conn, "haircut", TUE)
+        self.assertEqual(s.name_th, "ตัดผม")
+        self.assertEqual(s.notes, "ร้านเกษมเกษา ปั๊ม ปตท. บ้านสัน (ตอนเย็น)")
+        # แบบนับวันไม่มีหมายเหตุใน seed — ต้องเป็น None ไม่ใช่สตริงว่าง
+        self.assertIsNone(routines.status(self.conn, "diode", TUE).notes)
 
     def test_days_since_is_tracked_but_does_not_decide(self) -> None:
         """แบบวันประจำก็เก็บ last_done ไว้ดูได้ แต่ความถึงรอบมาจากวันในสัปดาห์"""

@@ -90,11 +90,31 @@ class CliEndToEndTests(unittest.TestCase):
         still = self._run("memory", "recall", "--topic", "ร้าน")
         self.assertEqual(len(still["data"]), 1, "ของต้องยังอยู่ครบ")
 
-    def test_doctor_ฟ้องค่าที่ยังไม่ได้กรอก(self) -> None:
+    def test_doctor_รายงานพร้อมเมื่อกรอกค่าครบแล้ว(self) -> None:
+        # migration 003 เติมค่าที่โอมกรอกไว้แล้ว doctor จึงต้องบอกว่าพร้อม
         payload = self._run("doctor")
-        self.assertFalse(payload["data"]["ready"])
+        self.assertTrue(payload["data"]["ready"], payload["data"]["problems"])
+        self.assertEqual(payload["data"]["problems"], [])
+
+    def test_doctor_ฟ้องเมื่อยังไม่ได้กรอก(self) -> None:
+        """ตรวจทางที่ doctor ต้องฟ้อง โดยตรึงฐานข้อมูลไว้ที่ 002 (ก่อนเติมค่าจริง)
+
+        เรียก cmd_doctor ตรงๆ ไม่ผ่าน main() เพราะ main() จะ migrate ถึง 003
+        แล้วค่าจะถูกเติมจนไม่เหลืออะไรให้ฟ้อง
+        """
+        import argparse
+        from core import db as core_db
+
+        conn = core_db.connect(":memory:")
+        core_db.migrate(conn, target_version=2)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli.cmd_doctor(argparse.Namespace(), conn)
+        conn.close()
+        data = json.loads(buf.getvalue())["data"]
+        self.assertFalse(data["ready"])
         self.assertTrue(
-            any("friday_anchor_date" in p for p in payload["data"]["problems"]),
+            any("friday_anchor_date" in p for p in data["problems"]),
             "doctor ต้องฟ้องว่า friday_anchor_date ยังไม่ได้กรอก",
         )
 

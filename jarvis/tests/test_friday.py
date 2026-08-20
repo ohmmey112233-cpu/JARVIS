@@ -8,8 +8,10 @@
 
 from __future__ import annotations
 
+import ast
 import unittest
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 from core import db, friday, localdate
 
@@ -175,11 +177,57 @@ class FridayStateTest(unittest.TestCase):
 
     def test_utc_evening_is_next_thai_day(self) -> None:
         # 21 ส.ค. 18:00 UTC = 22 ส.ค. 01:00 ไทย (เสาร์) → ยังเป็นสัปดาห์ศุกร์ 21
-        # กฎเหล็กข้อ 1: ถ้าเผลอตัดวันด้วย UTC สัปดาห์จะเพี้ยนคืนวันศุกร์ทุกครั้ง
+        # ข้อนี้พิสูจน์แค่ว่า aware datetime รับได้และไม่หลุดไปสัปดาห์อื่น
+        # (ตัวที่พิสูจน์เรื่องโซนเวลาจริงๆ คือเทสต์ถัดไป — ดูเหตุผลที่นั่น)
         clock = datetime(2026, 8, 21, 18, 0, tzinfo=timezone.utc)
         plan = friday.friday_state(ANCHOR, friday.HOME, clock)
         self.assertEqual(plan.friday, date(2026, 8, 21))
         self.assertEqual(plan.state, friday.HOTEL)
+
+    def test_utc_sunday_evening_belongs_to_the_thai_monday_week(self) -> None:
+        """กฎเหล็กข้อ 1 ของจริง — เคสเดียวที่แยก "ตัดวันแบบไทย" ออกจาก "ตัดวันแบบ UTC" ได้
+
+        อาทิตย์ 23 ส.ค. 18:00 UTC = จันทร์ 24 ส.ค. 01:00 ไทย → สัปดาห์ใหม่ ศุกร์ 28 ส.ค.
+        ถ้าเผลอตัดวันด้วย UTC จะได้อาทิตย์ 23 → ศุกร์ 21 ส.ค. ซึ่ง **สลับด้านทั้งสถานะ**
+        (home ↔ hotel) = จอง Sushiro ในสัปดาห์ที่กลับจอมทองพอดี (red-team H10)
+
+        หมายเหตุว่าทำไมต้องเป็นคืนวันอาทิตย์: เวลาที่ UTC กับไทยคนละวันแต่ยัง
+        อยู่สัปดาห์เดียวกัน (เช่น คืนวันศุกร์) จะให้ผลเท่ากันทั้งสองแบบ
+        เทสต์แบบนั้นจึงผ่านได้แม้โค้ดจะตัดวันผิดโซน
+        """
+        clock = datetime(2026, 8, 23, 18, 0, tzinfo=timezone.utc)
+        plan = friday.friday_state(ANCHOR, friday.HOME, clock)
+        self.assertEqual(plan.friday, date(2026, 8, 28))
+        self.assertEqual(plan.weeks_from_anchor, 2)
+        self.assertEqual(plan.state, friday.HOME)
+
+        # เทียบกับ 17:00 UTC ของวันเดียวกัน (= เที่ยงคืนไทยพอดี) ต้องได้สัปดาห์เดียวกัน
+        midnight_ict = datetime(2026, 8, 23, 17, 0, tzinfo=timezone.utc)
+        self.assertEqual(friday.friday_state(ANCHOR, friday.HOME, midnight_ict), plan)
+
+    def test_module_never_asks_the_system_clock_directly(self) -> None:
+        """กฎเหล็กข้อ 1 — โมดูลนี้ห้ามถามนาฬิกาเครื่อง/ของ SQLite เอง ต้องผ่าน core.localdate
+
+        ตรวจจาก AST ไม่ใช่ค้นข้อความดิบ เพราะ docstring ในโมดูลพูดถึงชื่อฟังก์ชัน
+        ต้องห้ามพวกนี้อยู่แล้ว (อธิบายว่าทำไมถึงห้าม) — ค้นข้อความจะฟ้องผิดตัว
+        """
+        tree = ast.parse(Path(friday.__file__).read_text(encoding="utf-8"))
+        banned_calls = {"datetime.now", "datetime.utcnow", "date.today", "time.time"}
+        banned_sql = ("DATE('NOW'", "CURRENT_TIMESTAMP", "CURRENT_DATE", "JULIANDAY('NOW'")
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+                    dotted = f"{func.value.id}.{func.attr}"
+                    self.assertNotIn(
+                        dotted, banned_calls, f"ห้ามเรียก {dotted}() — ต้องผ่าน core.localdate"
+                    )
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                upper = node.value.upper()
+                if any(k in upper for k in ("SELECT ", "UPDATE ", "INSERT ")):
+                    for banned in banned_sql:
+                        self.assertNotIn(banned, upper, f"ห้ามให้ SQLite คิดวันเอง: {banned}")
 
     def test_when_none_uses_local_today(self) -> None:
         # when=None ต้องให้ผลเท่ากับส่ง "วันนี้แบบเวลาไทย" เข้าไปตรงๆ
@@ -218,7 +266,7 @@ class FridayFromDbTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.conn = db.connect(":memory:")
-        db.migrate(self.conn)
+        db.migrate(self.conn, target_version=2)
         self.addCleanup(self.conn.close)
 
     def set_anchor(self, value: str) -> None:
@@ -269,6 +317,13 @@ class FridayFromDbTest(unittest.TestCase):
 
     def test_missing_preference_propagates(self) -> None:
         # ไม่มีคีย์เลย → ต้องเป็น MissingPreference ไม่ใช่ ValueError หรือค่า default
+        #
+        # ลบแถวทิ้งเองแทนที่จะหวังว่า seed จะเป็น '[ต้องกรอก]' อยู่:
+        # ไฟล์ schema ใหม่ (003_ohm_values.sql) เติมค่าจริงให้ตั้งแต่ migrate()
+        # เทสต์ที่ยืมสภาพจาก seed จึงเปลี่ยนความหมายไปเงียบๆ เมื่อ seed เปลี่ยน
+        self.conn.execute("DELETE FROM preferences WHERE key = ?", (friday.PREF_KEY,))
+        self.conn.commit()
+        self.assertIsNone(db.get_pref(self.conn, friday.PREF_KEY))
         with self.assertRaises(db.MissingPreference):
             friday.friday_state_from_db(self.conn, "2026-08-14")
 
@@ -313,7 +368,7 @@ class SushiroGateTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.conn = db.connect(":memory:")
-        db.migrate(self.conn)
+        db.migrate(self.conn, target_version=2)
         self.addCleanup(self.conn.close)
 
     def test_books_only_on_hotel_fridays(self) -> None:

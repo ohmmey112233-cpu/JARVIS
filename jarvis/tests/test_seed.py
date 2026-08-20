@@ -77,7 +77,7 @@ class SeedTestBase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.db_path = Path(self._tmp.name) / "jarvis-test.db"
         self.conn = db.connect(self.db_path)
-        self.version = db.migrate(self.conn)
+        self.version = db.migrate(self.conn, target_version=2)
 
     def tearDown(self) -> None:
         self.conn.close()
@@ -96,8 +96,8 @@ class TestMigrationApplies(SeedTestBase):
     def test_migrate_is_idempotent(self) -> None:
         # cron รีสตาร์ท / restore backup แล้วรัน migrate ซ้ำ ต้องไม่เกิดแถวซ้ำ
         before = self._counts()
-        self.assertEqual(db.migrate(self.conn), self.version)
-        self.assertEqual(db.migrate(self.conn), self.version)
+        self.assertEqual(db.migrate(self.conn, target_version=2), self.version)
+        self.assertEqual(db.migrate(self.conn, target_version=2), self.version)
         self.assertEqual(self._counts(), before)
 
     def test_rerun_does_not_overwrite_user_filled_values(self) -> None:
@@ -323,7 +323,7 @@ class TestSeedOnPreExistingDatabase(unittest.TestCase):
         self.assertEqual(
             self.conn.execute("SELECT COUNT(*) FROM routines").fetchone()[0], 0
         )
-        version = db.migrate(self.conn)
+        version = db.migrate(self.conn, target_version=2)
         self.assertGreaterEqual(version, 2)
         self.assertEqual(
             self.conn.execute("SELECT COUNT(*) FROM routines").fetchone()[0], 3
@@ -340,7 +340,7 @@ class TestSeedOnPreExistingDatabase(unittest.TestCase):
             "VALUES ('eyebrow', 'ทำคิ้ว', 7, '2026-08-01')"
         )
         self.conn.commit()
-        db.migrate(self.conn)
+        db.migrate(self.conn, target_version=2)
         row = self.conn.execute(
             "SELECT last_done FROM routines WHERE name = 'eyebrow'"
         ).fetchone()
@@ -348,7 +348,7 @@ class TestSeedOnPreExistingDatabase(unittest.TestCase):
 
     def test_foreign_keys_stay_on_after_migrate(self) -> None:
         # executescript อาจ commit ระหว่างทาง — PRAGMA ต้องยังเปิดอยู่หลัง migrate
-        db.migrate(self.conn)
+        db.migrate(self.conn, target_version=2)
         self.assertEqual(self.conn.execute("PRAGMA foreign_keys").fetchone()[0], 1)
 
 

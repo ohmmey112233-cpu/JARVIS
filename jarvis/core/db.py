@@ -60,10 +60,15 @@ def _applied_versions(conn: sqlite3.Connection) -> set[int]:
     return {r[0] for r in conn.execute("SELECT version FROM schema_version")}
 
 
-def migrate(conn: sqlite3.Connection) -> int:
+def migrate(conn: sqlite3.Connection, target_version: int | None = None) -> int:
     """รันไฟล์ schema ที่ยังไม่ได้รัน เรียงตามเลขนำหน้าชื่อไฟล์
 
     idempotent — รันซ้ำได้ ไฟล์ที่รันไปแล้วจะถูกข้าม
+
+    target_version = หยุดที่เวอร์ชันนี้ (รวมตัวมันเอง) ไม่ระบุ = รันทั้งหมด
+        มีไว้ให้เทสต์ตรึงสภาพฐานข้อมูล ณ จุดใดจุดหนึ่งได้ เช่นเทสต์ที่ตรวจว่า
+        "seed สดๆ ตามแบบ kit หน้าตาเป็นยังไง" ต้องหยุดที่ 002 ไม่งั้น 003
+        ที่เติมค่าจริงของโอมจะทำให้เทสต์นั้นเห็นสภาพที่ไม่ใช่ seed สด
     """
     done = _applied_versions(conn)
     files = sorted(SCHEMA_DIR.glob("[0-9][0-9][0-9]_*.sql"))
@@ -71,6 +76,8 @@ def migrate(conn: sqlite3.Connection) -> int:
         version = int(f.name[:3])
         if version in done:
             continue
+        if target_version is not None and version > target_version:
+            break
         conn.executescript(f.read_text(encoding="utf-8"))
         conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (version,))
         conn.commit()

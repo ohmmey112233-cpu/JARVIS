@@ -52,8 +52,9 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection
     """เปิด DB + เปิด foreign_keys + row_factory = sqlite3.Row
     path=None → อ่านจาก env JARVIS_DB หรือ ~/.jarvis/jarvis.db"""
 
-def migrate(conn: sqlite3.Connection) -> int
-    """รัน schema ที่ยังไม่ได้รัน คืน version ปัจจุบัน — idempotent"""
+def migrate(conn: sqlite3.Connection, target_version: int | None = None) -> int
+    """รัน schema ที่ยังไม่ได้รัน คืน version ปัจจุบัน — idempotent
+    target_version = หยุดที่เวอร์ชันนี้ ให้เทสต์ตรึงสภาพ DB ณ จุดหนึ่งได้"""""
 
 def get_pref(conn, key: str, default: str | None = None) -> str | None
 def set_pref(conn, key: str, value: str, notes: str | None = None) -> None
