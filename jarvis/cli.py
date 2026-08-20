@@ -127,6 +127,100 @@ def cmd_booking(args: argparse.Namespace, conn) -> int:
     return _err(f"ไม่รู้จักคำสั่ง booking '{args.action}'")
 
 
+# --- digest ------------------------------------------------------------------
+
+def _record_notification(conn, channel: str, kind: str, moment) -> bool:
+    """บันทึกการส่งลง notifications_sent — คืน False ถ้าวันนี้ส่ง kind นี้ไปแล้ว
+
+    unique index (channel, kind, date_key) คือด่านกันส่งซ้ำของจริง:
+    cron ยิงซ้ำ / เครื่อง restart แล้วยิงใหม่ จะชนด่านนี้แล้วเงียบไป
+    ไม่ใช่ส่งข้อความเดิมเข้า Telegram สองรอบ
+    """
+    import sqlite3 as _sq
+
+    try:
+        conn.execute(
+            "INSERT INTO notifications_sent"
+            " (channel, kind, date_key, month_key, counts_toward_quota)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (
+                channel,
+                kind,
+                moment.date().isoformat(),
+                moment.strftime("%Y-%m"),
+                # H14: LINE ฟรีแค่ 300/เดือน ต้องนับ — Telegram ฟรีไม่จำกัด ไม่นับ
+                0 if channel == "telegram" else 1,
+            ),
+        )
+        conn.commit()
+        return True
+    except _sq.IntegrityError:
+        conn.rollback()
+        return False
+
+
+def cmd_digest(args: argparse.Namespace, conn) -> int:
+    """พิมพ์ digest เป็น "ข้อความล้วน" — คำสั่งเดียวในไฟล์นี้ที่ไม่ใช่ JSON
+
+    ผู้บริโภคคือ Hermes cron แบบ --no-agent ที่เอา stdout ส่งเข้าแชทตรงๆ:
+    stdout ว่าง = ไม่ส่งอะไรเลย ซึ่งเป็นกลไกกันส่งซ้ำ/กันข้อความว่างของเราด้วย
+    (error ลง stderr เสมอ — ไปโผล่ใน hermes cron runs ไม่ปนในข้อความถึงโอม)
+    """
+    from datetime import datetime as _dt
+
+    from core import assemble
+    from core import digest as digest_mod
+
+    when = _dt.fromisoformat(args.at) if args.at else None
+
+    if args.kind == "morning":
+        from core.localdate import now as _now
+
+        moment = _now(when)
+        text = digest_mod.render_morning(assemble.morning_context(conn, moment))
+        record_kind = "digest_morning"
+    elif args.kind == "evening":
+        ctx, done, pending = assemble.evening_inputs(conn, when)
+        moment = ctx.when
+        text = digest_mod.render_evening(ctx, done_items=done, pending_work=pending)
+        record_kind = "digest_evening"
+    elif args.kind == "weekly":
+        ctx, rows, due_next = assemble.weekly_inputs(conn, when)
+        moment = ctx.when
+        text = digest_mod.render_weekly(ctx, week_rows=rows, due_next_week=due_next)
+        record_kind = "digest_weekly"
+    elif args.kind == "dream":
+        from core.localdate import now as _now
+
+        moment = _now(when)
+        summary = assemble.dream_summary(conn, when)
+        if not (
+            summary.get("archived_count")
+            or summary.get("merged_topics")
+            or summary.get("skipped")
+        ):
+            # หลักการข้อ 4 + โควตา: คืนที่ไม่มีอะไรถูกจัดระเบียบ ไม่ต้องส่งรายงาน
+            # (ผ่าน skill ถามเองยังได้ข้อความ "ไม่มีอะไร" อยู่ — คนถามควรได้คำตอบ
+            #  แต่ cron ที่ไม่มีอะไรจะพูด ควรเงียบ)
+            return 0
+        text = digest_mod.render_dream_report(summary)
+        record_kind = "dream_report"
+    else:  # pragma: no cover — argparse choices กันไว้แล้ว
+        return _err(f"ไม่รู้จัก digest '{args.kind}'")
+
+    if not text.strip():
+        return 0
+
+    # ลำดับสำคัญ: บันทึก "ก่อน" พิมพ์ — ถ้าบันทึกไม่ได้เพราะวันนี้ส่งแล้ว
+    # ต้องไม่พิมพ์ (พิมพ์ = ส่งซ้ำ) / ถ้าพิมพ์ก่อนแล้วค่อยบันทึก จะมีช่องที่
+    # ข้อความออกไปแล้วแต่บันทึกพัง → รอบถัดไปส่งซ้ำ
+    if args.record and not _record_notification(conn, args.record, record_kind, moment):
+        return 0
+
+    print(text)
+    return 0
+
+
 # --- doctor ------------------------------------------------------------------
 
 def cmd_doctor(args: argparse.Namespace, conn) -> int:
@@ -179,6 +273,16 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--party-size", type=int, dest="party_size")
     b.add_argument("--fallback", help="ซองคำตอบล่วงหน้า คั่นด้วยคอมมา เช่น '19:30,20:00'")
     b.set_defaults(func=cmd_booking)
+
+    g = sub.add_parser(
+        "digest",
+        help="พิมพ์ digest เป็นข้อความล้วน (สำหรับ cron --no-agent ส่งเข้าแชทตรงๆ)",
+    )
+    g.add_argument("kind", choices=["morning", "evening", "weekly", "dream"])
+    g.add_argument("--record", metavar="CHANNEL",
+                   help="บันทึกลง notifications_sent — ส่งซ้ำวันเดิมจะเงียบ (กันข้อความซ้ำ)")
+    g.add_argument("--at", help="ฉีดเวลา ISO เช่น 2026-08-26T06:00 (ไม่ใส่ = เวลาไทยตอนนี้)")
+    g.set_defaults(func=cmd_digest)
 
     d = sub.add_parser("doctor", help="ตรวจว่าค่าที่ต้องกรอกเองครบหรือยัง")
     d.set_defaults(func=cmd_doctor)

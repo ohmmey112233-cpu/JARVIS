@@ -129,3 +129,75 @@ class CliEndToEndTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CliDigestTests(unittest.TestCase):
+    """กลุ่ม digest — คำสั่งเดียวที่พิมพ์ข้อความล้วน เพราะผู้อ่านคือคน ไม่ใช่ agent"""
+
+    def setUp(self) -> None:
+        fd, self.path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        os.unlink(self.path)
+
+    def tearDown(self) -> None:
+        if os.path.exists(self.path):
+            os.unlink(self.path)
+
+    def _run(self, *argv: str) -> str:
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = cli.main(["--db", self.path, *argv])
+        self.assertEqual(code, 0)
+        return buf.getvalue()
+
+    def test_พิมพ์ข้อความล้วน_ไม่ใช่_JSON(self) -> None:
+        out = self._run("digest", "morning", "--at", "2026-08-24T06:20")
+        self.assertIn("อรุณสวัสดิ์ครับ", out)
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(out)
+
+    def test_at_ฉีดเวลาได้_วันพุธขึ้นคำเตือน(self) -> None:
+        out = self._run("digest", "morning", "--at", "2026-08-26T06:00")
+        self.assertIn("⚠️ วันนี้พุธ", out)
+
+    def test_record_กันส่งซ้ำวันเดียวกัน(self) -> None:
+        first = self._run("digest", "morning", "--at", "2026-08-26T06:00", "--record", "telegram")
+        self.assertIn("อรุณสวัสดิ์ครับ", first)
+        # ยิงซ้ำวันเดิม (คนละเวลา) → ต้องว่างสนิท = cron จะไม่ส่งอะไร
+        again = self._run("digest", "morning", "--at", "2026-08-26T07:00", "--record", "telegram")
+        self.assertEqual(again, "")
+        # วันถัดไปต้องส่งได้ใหม่
+        tomorrow = self._run("digest", "morning", "--at", "2026-08-27T06:20", "--record", "telegram")
+        self.assertIn("อรุณสวัสดิ์ครับ", tomorrow)
+
+    def test_โควตา_telegram_ไม่นับ_line_นับ(self) -> None:
+        self._run("digest", "morning", "--at", "2026-08-26T06:00", "--record", "telegram")
+        self._run("digest", "evening", "--at", "2026-08-26T18:30", "--record", "line")
+        import sqlite3 as sq
+
+        conn = sq.connect(self.path)
+        rows = dict(conn.execute(
+            "SELECT channel, counts_toward_quota FROM notifications_sent"
+        ).fetchall())
+        conn.close()
+        self.assertEqual(rows, {"telegram": 0, "line": 1})
+
+    def test_dream_ไม่มีอะไร_ต้องเงียบและไม่บันทึก(self) -> None:
+        out = self._run("digest", "dream", "--record", "telegram")
+        self.assertEqual(out, "")
+        import sqlite3 as sq
+
+        conn = sq.connect(self.path)
+        n = conn.execute("SELECT COUNT(*) FROM notifications_sent").fetchone()[0]
+        conn.close()
+        # เงียบต้องเงียบจริง: ไม่พิมพ์ และไม่บันทึกว่าส่ง (บันทึกทั้งที่ไม่ส่ง = โกหกตัวเอง)
+        self.assertEqual(n, 0)
+
+    def test_evening_ผ่าน_CLI_มีเนื้อหาจริง(self) -> None:
+        out = self._run("digest", "evening", "--at", "2026-08-24T18:30")
+        self.assertIn("เย็นนี้เป็นไงบ้างครับ", out)
+
+    def test_weekly_ผ่าน_CLI_มีตารางสัปดาห์(self) -> None:
+        out = self._run("digest", "weekly", "--at", "2026-08-23T20:00")
+        self.assertIn("สัปดาห์หน้ามีอะไรบ้าง", out)
+        self.assertIn("ศ. — 🏨", out)
