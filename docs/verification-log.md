@@ -80,3 +80,73 @@
 - `website/docs/user-guide/configuration.md` — คีย์ `timezone` (มีผลกับ cron และเวลาใน system prompt)
 - `cli-config.yaml.example` — รายชื่อ provider ที่รองรับ และ `updates.pre_update_backup`
 - `plugins/model-providers/anthropic/__init__.py` — env var, api mode, aux model
+
+---
+
+# Phase 1 — โค้ดแกน (เพิ่มเมื่อ 20 ส.ค. 2026)
+
+> ส่วนบนของไฟล์นี้เป็นเรื่อง Phase 0B (ติดตั้ง Hermes) ส่วนนี้เป็นเรื่องโค้ด Phase 1
+> ที่เขียนไว้ล่วงหน้าระหว่างรอเครื่องต่อกับ VPS
+
+**สภาพแวดล้อมที่ทดสอบ:** Python 3.11.15 / stdlib + sqlite3 เท่านั้น
+**ผลรวม: 295 เทสต์ผ่านทั้งหมด** — โค้ดแกน 2,968 บรรทัด เทสต์ 3,308 บรรทัด
+
+```bash
+PYTHONPATH=jarvis python3 -m unittest discover -s jarvis/tests
+```
+
+## ✅ พิสูจน์แล้วด้วยการรันจริง
+
+| โมดูล | เทสต์ | สิ่งที่พิสูจน์ได้ |
+|---|---|---|
+| `localdate` | (ใช้ร่วมทุกตัว) | 18:00 UTC อ่านเป็นวันถัดไปตามเวลาไทยถูกต้อง — กันบั๊กที่ routine จะรีเซ็ตตอน 7 โมงเช้า |
+| `friday` | 35 | สลับถูกทั้งก่อนและหลัง anchor / anchor ที่ไม่ใช่ศุกร์ = ValueError ไม่ปัดให้เงียบๆ |
+| `webhook` | 55 | ใช้ `hmac.compare_digest` จริง / secret ว่าง = 500 ปิดประตู ไม่ใช่ปล่อยผ่าน |
+| `memory` | 47 | ทับ 3 ชั้นแล้ว recall ได้เฉพาะข้อล่าสุด / `forget` ไม่ยืนยัน = ไม่ลบจริง (นับแถวยืนยันแล้ว) |
+| `booking` | 46 | ซองคำตอบมีตัวเลือกปฏิเสธปิดท้ายเสมอ / ตั้ง confirmed โดยไม่มี result_note = ValueError |
+| `routines` | 42 | ขอบเขต 13 วัน (ยังไม่ถึง) กับ 14 วัน (ถึงรอบ) / ตัดผมเตือนเฉพาะอังคาร |
+| `seed` | 34 | ข้อมูลจริงจาก kit ครบ / `require_pref` ระเบิดเมื่อเจอ `[ต้องกรอก]` |
+| `digest` | 15 | **เทียบผลลัพธ์กับตัวอย่างใน kit ทีละตัวอักษร 7 แบบ** / API ล่มทุกตัวยังส่งได้ / คำว่า "ล็อค" ไม่โผล่แม้ค่าจาก API จะมีคำนั้นปนมา |
+| `scaccounting` | 12 | ปฏิเสธทุกเมธอดที่ไม่ใช่ GET / กัน path traversal / บันทึก audit แม้คำขอถูกปฏิเสธ / ไม่มีฟังก์ชันเขียนเลย |
+| `cli` | 9 | JSON ที่ออกไปมีชื่อคีย์เสมอ / output parse เป็น JSON ได้ตลอด |
+
+### บั๊กที่เจอตอนต่อของจริง (เทสต์ระดับโมดูลจับไม่ได้)
+
+**`NamedTuple` ถูก serialize เป็น array แทน object** — `NamedTuple` เป็น subclass ของ
+`tuple` ด้วย `_rows()` ใน `cli.py` จึงเข้าเงื่อนไข `isinstance(x, tuple)` ก่อนถึงเงื่อนไข
+`_asdict` ผลคือ Hermes skill ทุกตัวที่อ่านผลด้วยชื่อคีย์จะพังหมด
+
+บั๊กนี้ไม่ได้อยู่ในโมดูลไหนเลย มันอยู่ที่ "รอยต่อ" — แต่ละฝั่งถูกต้องในตัวเอง
+เจอเพราะลองเดินคำสั่งจริงผ่าน CLI ไม่ใช่เพราะรันเทสต์
+แก้แล้วพร้อมเทสต์กันย้อนกลับใน `jarvis/tests/test_cli.py`
+
+## ⚠️ ยังพิสูจน์ไม่ได้ — ต้องมีของจริงก่อน
+
+| เรื่อง | ติดตรงไหน |
+|---|---|
+| digest ยิงจริงตอน 06:20 | ต้องรันบน VPS จริง — checklist A1 (7 วันติด) |
+| ตัวเลขเดินทาง/อากาศ/ฝุ่นถูกไหม | ยังไม่มีตัวดึง API — `DigestContext` รับค่าไว้แล้วแต่ไม่มีใครเติม |
+| โทรจองจริง | `booking.py` บันทึกได้แต่ยังโทรไม่ได้ — Phase 3 |
+| ต่อระบบบัญชีจริง | ด่านความปลอดภัยพร้อม แต่ยังไม่มี transport — Phase 2 ต้องมี OAuth ก่อน |
+| ศุกร์สลับถูกด้านจริงไหม | **ต้องกรอก `friday_anchor_date` ก่อน** ตรรกะถูกแล้ว แต่ค่าตั้งต้นเป็นเรื่องของคน |
+
+## สิ่งที่คนต้องทำเอง ระบบเดาแทนไม่ได้
+
+`PYTHONPATH=jarvis python3 -m cli doctor` จะฟ้อง 3 ค่านี้จนกว่าจะกรอก
+
+```sql
+UPDATE preferences SET value = 'YYYY-MM-DD:home'  WHERE key = 'friday_anchor_date';
+UPDATE routines    SET last_done = 'YYYY-MM-DD'   WHERE name = 'diode';
+UPDATE routines    SET last_done = 'YYYY-MM-DD'   WHERE name = 'eyebrow';
+```
+
+จงใจให้ระเบิดแทนที่จะใส่ค่า default — kit เตือนว่า *"ถ้าผิด ระบบจะสลับกลับด้านทั้งหมด"*
+และ H10 บอกว่า Sushiro no-show ซ้ำๆ โดนแบนเร็วกว่าเรื่อง ToS
+
+## ถ้าจะทำต่อ — งานถัดไปเรียงตามลำดับที่ควรทำ
+
+1. **ติดตั้งบน VPS + gate trial 3 วัน** (Phase 0B) — ตัดสิน Track A/B ก่อนเขียนอะไรเพิ่ม
+2. ผ่านแล้ว → ติดตั้ง skill ทั้ง 3 ตัว + กรอก 3 ค่าข้างบน + ตั้ง cron digest จริง
+3. เขียนตัวดึง API เสริม digest (Routes / Longdo / Air4Thai / Calendar)
+4. backup ทุกคืน + **ทดสอบ restore จริง 1 ครั้ง** (kit: backup ที่ไม่เคยทดสอบ restore = ยังไม่มี backup)
+5. ใช้จริง 1 เดือน → นับวันที่เปิดอ่าน → ตัดสินตามเกณฑ์ใน `phase1-checklist.md` ส่วน F
