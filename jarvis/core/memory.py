@@ -85,9 +85,17 @@ def _as_datetime(when: str | date | datetime | None) -> datetime | None:
 
     รับ date/สตริงวันที่ด้วย เพราะเทสต์และงาน cron บางที่ถือแค่ "วันไหน" ไม่มีเวลา
     naive datetime ปล่อยผ่านไปให้ localdate ตีความว่าเป็นเวลาไทย (ตามสัญญาของมัน)
+
+    สตริงที่มีเวลาต่อท้าย ('2026-08-20 23:30:00') ต้องเก็บเวลานั้นไว้ ห้ามตัดเป็นเที่ยงคืน —
+    ตัดทิ้งคือเลื่อนเวลาที่บันทึกได้ถึง 23 ชั่วโมง ซึ่งย้อนแย้งกับเหตุผลทั้งหมด
+    ที่โมดูลนี้เขียน timestamp เองแทนที่จะปล่อยให้ DEFAULT ของ SQLite ทำงาน
     """
     if when is None or isinstance(when, datetime):
         return when
+    if isinstance(when, str):
+        text = when.strip()
+        if "T" in text or " " in text:
+            return datetime.fromisoformat(text)
     return datetime.combine(localdate.to_date(when), time(0, 0))
 
 
@@ -137,6 +145,10 @@ def _normalize_tags(tags: Iterable[str] | str | None) -> list[str]:
     cleaned: list[str] = []
     seen: set[str] = set()
     for item in items:
+        if item is None:
+            # JSON ที่ส่งมาจาก skill ใส่ null ปนมาได้ — str(None) จะกลายเป็นแท็ก 'None'
+            # ที่ค้นเจอจริงและติดไปกับความจำตลอดไป ต้องทิ้งตั้งแต่ตรงนี้
+            continue
         for part in str(item).split(TAG_SEPARATOR):
             tag = part.strip()
             if not tag:
