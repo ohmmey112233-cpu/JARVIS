@@ -256,3 +256,64 @@ def parse_request(body: bytes | str, headers: dict, secret: str) -> dict
 def build_response(reply: str, *, ok: bool = True) -> dict
     """Siri action 'Speak Text' อ่านค่าจากคีย์ 'speak' — ต้องมีคีย์นี้เสมอ"""
 ```
+
+---
+
+# งวดที่ 2 — ประกอบ digest จริง (เพิ่ม 20 ส.ค. 2026)
+
+## `cli.py` กลุ่มคำสั่งใหม่ `digest` — ⚠️ พิมพ์ "ข้อความล้วน" ไม่ใช่ JSON
+
+```
+python3 -m cli digest morning [--record CHANNEL] [--at 'YYYY-MM-DDTHH:MM']
+python3 -m cli digest evening [--record CHANNEL] [--at ...]
+python3 -m cli digest weekly  [--record CHANNEL] [--at ...]
+python3 -m cli digest dream   [--record CHANNEL]
+```
+
+ทำไมไม่ใช่ JSON เหมือนคำสั่งอื่น: ผู้บริโภคของคำสั่งนี้คือ Hermes cron แบบ
+`--no-agent` ที่เอา stdout ส่งเข้า Telegram **ตรงๆ ทั้งก้อน** — digest เป็น
+deterministic อยู่แล้ว ไม่ต้องให้ LLM เรียบเรียงซ้ำ (ประหยัด token และกันข้อความ
+ดริฟต์จากแบบใน kit) คำสั่งอื่นมี agent เป็นคนอ่าน คำสั่งนี้มีคนเป็นคนอ่าน
+
+`--record CHANNEL` = บันทึกลง notifications_sent (นับโควตา H14)
+  - ถ้าวันนี้บันทึก kind เดียวกันไปแล้ว (unique index) → **พิมพ์อะไรออกมาเลย = ว่าง**
+    และ exit 0 — cron ยิงซ้ำจะเงียบ ไม่ส่งข้อความซ้ำ (Hermes: stdout ว่าง = ไม่ส่ง)
+  - channel 'telegram' → counts_toward_quota=0 / 'line' → 1
+
+`--at` = ฉีดเวลา (เทสต์/ดูย้อนหลัง) รูปแบบ ISO ไม่ใส่ = เวลาไทยตอนนี้
+
+## `core/assemble.py` — ประกอบ DigestContext จากฐานข้อมูล
+
+```python
+def morning_context(conn, when=None, extras: Mapping | None = None) -> DigestContext
+    """extras = ค่าจาก API ภายนอกที่ fetcher ดึงมาแล้ว (travel_minutes, leave_by,
+    weather_summary, rain_window, aqi, calendar_items) — ไม่มี = ข้ามหัวข้อนั้น
+    ข้อมูลจาก DB: class_schedule ของวันนั้น, due/upcoming routines, FridayPlan
+    FridayPlan: จับ MissingPreference → friday=None (เงียบเรื่องบ้าน/โรงแรม ไม่เดา)"""
+
+def evening_inputs(conn, when=None) -> tuple[DigestContext, list[str], list[str]]
+    """(ctx, done_items, pending_work)
+    done_items = routine ที่ last_done == วันนี้ + booking ที่ confirmed วันนี้
+    pending_work = [] เสมอตอนนี้ (ยังไม่มี scaccounting transport) — renderer
+    จะไม่พิมพ์หัวข้อ 📋 เอง ห้ามใส่ข้อความ 'ดึงไม่ได้' ลงไปแทน"""
+
+def weekly_inputs(conn, when=None) -> tuple[DigestContext, list, list]
+    """(ctx, week_rows, due_next_week) — ctx.friday ต้องเป็นแผนของศุกร์ **สัปดาห์หน้า**
+    week_rows: จ-ศ ของสัปดาห์หน้า จาก class_schedule.notes + routine แบบ weekday
+    + สถานะศุกร์ / วันที่ไม่มีอะไร = 'ปกติ' ตามแบบ kit
+    due_next_week: routine แบบ interval ที่ถึงรอบภายในสัปดาห์หน้า"""
+```
+
+## `core/fetchers.py` — ดึงข้อมูล API เสริม digest (spec Phase 1 ข้อ 7)
+
+```python
+Transport = Callable[[str, Mapping[str, str]], Any]   # (url, params) -> parsed JSON
+
+def fetch_extras(prefs: Mapping[str, str], *, transport: Transport | None = None,
+                 env: Mapping[str, str] | None = None, when=None) -> dict
+    """คืน dict สำหรับ morning_context(extras=...) — คีย์ที่มีเฉพาะตัวที่ดึงสำเร็จ
+    แต่ละ API ล้มเหลว = ข้ามคีย์นั้นเงียบๆ (checklist E2) ห้ามให้ตัวเดียวพาทั้งก้อนพัง
+    transport=None = ใช้ urllib จริง / เทสต์ฉีดตัวปลอม — เทสต์ห้ามออกเน็ตจริง
+    env: GOOGLE_MAPS_API_KEY, LONGDO_API_KEY (Air4Thai ไม่ต้องใช้ key)
+    คีย์ไหนไม่ได้ตั้ง = ข้าม API นั้น ไม่ใช่ error"""
+```
