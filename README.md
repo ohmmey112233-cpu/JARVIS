@@ -13,11 +13,17 @@
 - เปิด gateway เป็น systemd service รัน 24 ชม. รอดหลังรีบูต
 - เครื่องมือทดสอบ gate trial ครบ 3 ข้อ
 
-**ยังไม่ทำ (ตามที่สั่ง)**
-- custom skill ใดๆ — `routines`, `booking`, `scaccouting`
-- `jarvis.db` / SQLite
-- digest ตัวจริงตาม `phase1-kit` (ตอนนี้เป็นแค่ข้อความทดสอบว่ามาตรงเวลาไหม)
-- บุคลิก Jarvis, backup, LINE gateway, เสียง — ทั้งหมดอยู่ Phase 1 ขึ้นไป
+**Phase 1 — โค้ดเขียนไว้แล้ว รอติดตั้งบน VPS** (ดู [`jarvis/`](jarvis/))
+- `jarvis.db` schema ครบ 11 ตาราง + seed data จริงจาก phase1-kit
+- ตรรกะแกนทั้งหมด: routines, ศุกร์สลับสัปดาห์, ความจำ CRUD, เรนเดอร์ digest,
+  tool กลางการจอง, webhook รับเสียงจาก Siri, ด่านความปลอดภัยระบบบัญชี
+- บุคลิก Jarvis (`jarvis/prompts/personality.md`) คัดจาก phase1-kit ตรงๆ
+- Hermes skill 3 ตัวใน [`skills/`](skills/)
+
+**ยังไม่ได้ทำ**
+- โทรจองจริง (Twilio/Vapi) — Phase 3 · ต่อระบบบัญชีจริง — Phase 2
+- API เสริม digest (Routes/Weather/AQI/Calendar) — ตัวรับค่าพร้อมแล้ว แต่ยังไม่มีตัวดึง
+- LINE gateway — Phase 2 · Home Assistant — Phase 5 · backup — Phase 1 ตอนติดตั้ง
 
 ---
 
@@ -217,8 +223,50 @@ config/
 docs/
   digitalocean-setup.md      คู่มือ DigitalOcean ทีละคลิก ตั้งแต่สร้าง droplet
   gate-trial.md              ชุดทดสอบ 3 ข้อ + ตารางกรอกผล + เกณฑ์ตัดสิน
+  architecture.md            ทำไมแยก core/ ออกจาก skills/ + ไหลของข้อมูล
+  phase1-checklist.md        เกณฑ์ตรวจรับ Phase 1 (A-F) จาก kit ส่วนที่ 4
   troubleshooting.md         อาการที่เจอบ่อยเรียงตามความถี่
   verification-log.md        บันทึกว่าอะไรถูกทดสอบจริงแล้วบ้าง
+
+jarvis/                      โค้ด Phase 1 — Python ล้วน ไม่ผูกกับ Hermes
+  CONTRACTS.md               API ของทุกโมดูล กำหนดไว้ล่วงหน้า
+  cli.py                     สะพานระหว่าง Hermes กับ core/ คืน JSON
+  core/                      ตรรกะจริงทั้งหมด (9 โมดูล)
+  schema/                    001_init.sql + 002_seed.sql
+  prompts/personality.md     บุคลิก Jarvis — แก้ที่เดียวมีผลทั้งระบบ
+  tests/                     เทสต์ทุกโมดูล รันได้โดยไม่ต้องมี API key
+
+skills/                      Hermes skill adapter (บางมาก ไม่มีตรรกะ)
+  jarvis-routines/  jarvis-memory/  jarvis-booking/
+```
+
+---
+
+## โค้ด Phase 1 — รันเทสต์ได้เลยโดยไม่ต้องมี VPS
+
+```bash
+PYTHONPATH=jarvis python3 -m unittest discover -s jarvis/tests
+```
+
+เทสต์ทั้งหมดรันได้โดย **ไม่ต้องมี API key ไม่ต้องต่อเน็ต ไม่ต้องติดตั้ง Hermes**
+เพราะ `jarvis/core/` เป็น Python ล้วน + stdlib + sqlite3 เท่านั้น
+
+### ค่า 2 อย่างที่ต้องกรอกเองก่อนใช้จริง
+
+```bash
+PYTHONPATH=jarvis python3 -m cli doctor      # บอกว่าเหลืออะไรต้องกรอก
+```
+
+phase1-kit ระบุไว้ว่ามี 3 ค่าที่ระบบเดาแทนไม่ได้ — seed ไว้เป็น `[ต้องกรอก]`
+และ `require_pref()` จะ **ระเบิดทันที** ถ้าเรียกใช้ทั้งที่ยังไม่กรอก
+(เลือกให้ดังไว้ก่อน เพราะ `friday_anchor_date` ที่ผิด = สลับด้านทั้งปีโดยไม่มีอะไรฟ้อง)
+
+```sql
+-- ศุกร์ล่าสุดที่ผ่านมา เป็นสัปดาห์กลับจอมทอง (home) หรือสัปดาห์โรงแรม (hotel)
+UPDATE preferences SET value = '2026-08-14:home' WHERE key = 'friday_anchor_date';
+-- วันที่ทำครั้งล่าสุดของไดโอดและคิ้ว
+UPDATE routines SET last_done = '2026-08-10' WHERE name = 'diode';
+UPDATE routines SET last_done = '2026-08-17' WHERE name = 'eyebrow';
 ```
 
 ---
