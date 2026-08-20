@@ -36,13 +36,18 @@ def _err(message: str, *, code: int = 1) -> int:
 
 
 def _rows(items: Any) -> Any:
-    """แปลงผลจาก core/ ให้เป็นอะไรที่ json.dumps รับได้"""
-    if isinstance(items, (list, tuple)):
-        return [_rows(i) for i in items]
-    if hasattr(items, "_asdict"):          # NamedTuple
+    """แปลงผลจาก core/ ให้เป็นอะไรที่ json.dumps รับได้
+
+    ⚠️ ลำดับการเช็คสำคัญมาก: NamedTuple "เป็น" tuple ด้วย
+    ถ้าเช็ค isinstance(x, tuple) ก่อน NamedTuple จะถูกแปลงเป็น array
+    แล้วฝั่งที่อ่านจะเข้าถึงด้วยชื่อคีย์ไม่ได้ ต้องเช็ค _asdict ก่อนเสมอ
+    """
+    if hasattr(items, "_asdict"):          # NamedTuple — ต้องมาก่อน tuple
         return {k: _rows(v) for k, v in items._asdict().items()}
     if hasattr(items, "keys"):             # sqlite3.Row
-        return {k: items[k] for k in items.keys()}
+        return {k: _rows(items[k]) for k in items.keys()}
+    if isinstance(items, (list, tuple)):
+        return [_rows(i) for i in items]
     return items
 
 
