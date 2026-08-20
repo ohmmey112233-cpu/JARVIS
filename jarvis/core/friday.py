@@ -22,7 +22,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import NamedTuple
 
 from . import db, localdate
@@ -50,6 +50,10 @@ class FridayPlan(NamedTuple):
     state: str
     is_home: bool
     weeks_from_anchor: int
+    # ยืนยันแล้วหรือแค่คาดเดา — ต่อท้ายสุดเพื่อไม่ให้การเข้าถึงแบบ positional เดิมพัง
+    # False = มาจากการสลับตาม anchor เฉยๆ ซึ่งโอมบอกเองว่า "แล้วแต่สถานการณ์"
+    # True  = มีคำตอบจริงของศุกร์นั้นในตาราง friday_overrides
+    confirmed: bool = False
 
 
 def _normalize_state(value: str) -> str:
@@ -169,11 +173,69 @@ def friday_state_from_db(
     """
     raw = db.require_pref(conn, PREF_KEY)
     anchor, state = _parse_anchor_pref(raw)
-    return friday_state(anchor, state, when)
+    plan = friday_state(anchor, state, when)
+
+    # คำตอบจริงทับการคาดเดาเสมอ
+    row = conn.execute(
+        "SELECT state FROM friday_overrides WHERE friday_date = ?",
+        (plan.friday.isoformat(),),
+    ).fetchone()
+    if row is None:
+        return plan
+    actual = _normalize_state(row["state"] if hasattr(row, "keys") else row[0])
+    return plan._replace(state=actual, is_home=actual == HOME, confirmed=True)
+
+
+def set_friday(
+    conn: sqlite3.Connection,
+    friday_date: str | date | datetime,
+    state: str,
+    note: str | None = None,
+) -> FridayPlan:
+    """ยืนยันว่าศุกร์นั้นอยู่ไหนจริง — ทับการคาดเดาจาก anchor
+
+    ตั้งซ้ำได้ (เปลี่ยนใจได้) เพราะแผนของคนเปลี่ยนเป็นเรื่องปกติ
+    วันที่ไม่ใช่ศุกร์ = ValueError เพราะเกือบทุกครั้งแปลว่าพิมพ์วันผิด
+    """
+    target = _anchor_friday(friday_date)   # ใช้ตัวเดียวกับ anchor: บังคับว่าต้องเป็นศุกร์
+    value = _normalize_state(state)
+    conn.execute(
+        "INSERT INTO friday_overrides (friday_date, state, note, set_at)"
+        " VALUES (?, ?, ?, datetime('now'))"
+        " ON CONFLICT(friday_date) DO UPDATE SET"
+        "   state = excluded.state, note = excluded.note, set_at = datetime('now')",
+        (target.isoformat(), value, note),
+    )
+    conn.commit()
+    return friday_state_from_db(conn, target)
+
+
+def clear_friday(conn: sqlite3.Connection, friday_date: str | date | datetime) -> FridayPlan:
+    """ลบคำยืนยันของศุกร์นั้น กลับไปใช้การคาดเดาจาก anchor"""
+    target = _anchor_friday(friday_date)
+    conn.execute("DELETE FROM friday_overrides WHERE friday_date = ?", (target.isoformat(),))
+    conn.commit()
+    return friday_state_from_db(conn, target)
+
+
+def unconfirmed_fridays(
+    conn: sqlite3.Connection, *, weeks: int = 2, when: str | date | datetime | None = None
+) -> list[FridayPlan]:
+    """ศุกร์ข้างหน้าที่ยังไม่ได้ยืนยัน — ใช้ถามโอมตอนสรุปสัปดาห์"""
+    base = localdate.friday_of_week(when if when is not None else localdate.local_date())
+    out: list[FridayPlan] = []
+    for i in range(weeks):
+        plan = friday_state_from_db(conn, base + timedelta(days=7 * i))
+        if not plan.confirmed:
+            out.append(plan)
+    return out
 
 
 def is_in_chiang_mai_on_friday(
-    conn: sqlite3.Connection, when: str | date | datetime | None = None
+    conn: sqlite3.Connection,
+    when: str | date | datetime | None = None,
+    *,
+    require_confirmed: bool = True,
 ) -> bool:
     """ศุกร์ของสัปดาห์นั้นโอมอยู่ในตัวเมืองเชียงใหม่ไหม (ใช้โดย Sushiro, Phase 4)
 
@@ -184,4 +246,10 @@ def is_in_chiang_mai_on_friday(
     ไม่ดักจับ MissingPreference ไว้เอง: anchor ที่ยังไม่กรอกแล้วคืน False เงียบๆ
     จะทำให้ไม่มีใครรู้ว่าระบบจองหยุดทำงาน ปล่อยให้ Phase 4 ตัดสินใจว่าจะจัดการยังไง
     """
-    return friday_state_from_db(conn, when).state == HOTEL
+    plan = friday_state_from_db(conn, when)
+    if require_confirmed and not plan.confirmed:
+        # ยังไม่ยืนยัน = ยังไม่รู้จริง → ตอบว่า "อย่าเพิ่งจอง"
+        # H10: no-show ซ้ำๆ โดนแบนเร็วกว่าเรื่อง ToS — ต้นทุนของการเดาผิดสูงกว่า
+        # ต้นทุนของการไม่จองมาก จึงเลือกฝั่งที่พลาดแล้วเสียหายน้อยกว่า
+        return False
+    return plan.state == HOTEL

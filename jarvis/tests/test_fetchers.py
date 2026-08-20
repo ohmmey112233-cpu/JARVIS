@@ -160,7 +160,7 @@ class AllProvidersTest(unittest.TestCase):
         self.assertEqual(
             {
                 "travel_minutes": 12,
-                "leave_by": "07:13",
+                "leave_by": "07:15",
                 "weather_summary": "27° ไม่มีฝนช่วงเช้า",
                 "aqi": 57,
                 "calendar_items": ["หาหมอฟัน 17:00", "ประชุมครอบครัว"],
@@ -228,7 +228,8 @@ class LeaveByTest(unittest.TestCase):
         # 07:35 − 12 นาทีเดินทาง − 10 นาที buffer = 07:13
         self.assertEqual(10, BUFFER_MINUTES)
         extras, _, _ = run()
-        self.assertEqual("07:13", extras["leave_by"])
+        # 455 − 12 − 10 = 433 (07:13) แล้วปัดเป็นเลข 5 นาทีใกล้สุด → 07:15 ตรงกับตัวอย่างใน kit
+        self.assertEqual("07:15", extras["leave_by"])
 
     def test_missing_arrive_pref_gives_travel_without_leave_by(self) -> None:
         prefs = {k: v for k, v in PREFS.items() if k != "school_arrive_by"}
@@ -263,7 +264,8 @@ class FailureIsolationTest(unittest.TestCase):
         extras, _, stderr_text = run(responses=responses)
         self.assertNotIn("aqi", extras)
         self.assertEqual(12, extras["travel_minutes"])
-        self.assertEqual("07:13", extras["leave_by"])
+        # 455 − 12 − 10 = 433 (07:13) แล้วปัดเป็นเลข 5 นาทีใกล้สุด → 07:15 ตรงกับตัวอย่างใน kit
+        self.assertEqual("07:15", extras["leave_by"])
         self.assertIn("weather_summary", extras)
         self.assertIn("calendar_items", extras)
         # ล้มแล้วต้องทิ้งร่องรอยไว้ใน stderr — เงียบสนิทคือหายนะแบบตรวจย้อนไม่ได้

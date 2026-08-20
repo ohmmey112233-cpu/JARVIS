@@ -115,7 +115,9 @@ class WeeklyInputsTests(unittest.TestCase):
         # สัปดาห์ 24-30 ส.ค. → ศุกร์ 28 = hotel
         self.assertIn("ศ. — 🏨 สัปดาห์โรงแรม (คราวนี้ไม่กลับจอมทอง)", text)
         self.assertIn("จ. — ปกติ", text)
-        self.assertIn("จองโรงแรมให้เลยไหมครับ?", text)
+        # ศุกร์ยังไม่ถูกยืนยัน → ต้องถามยืนยันก่อน ห้ามชวนจองโรงแรม
+        self.assertIn("ศุกร์หน้าคาดว่าอยู่เชียงใหม่ 🏨 — ใช่ไหมครับ?", text)
+        self.assertNotIn("จองโรงแรม", text)
 
     def test_friday_เป็นแผนของสัปดาห์หน้า_ไม่ใช่สัปดาห์นี้(self) -> None:
         # คืนอาทิตย์ 23 ส.ค. อยู่สัปดาห์ของศุกร์ 21 (home) แต่ต้องรายงานศุกร์ 28 (hotel)
@@ -129,6 +131,15 @@ class WeeklyInputsTests(unittest.TestCase):
         names = [s.name for s in due_next]
         self.assertIn("diode", names)
         self.assertNotIn("haircut", names, "แบบวันประจำอยู่ในตารางแล้ว ห้ามซ้ำ")
+
+    def test_ยืนยันแล้วจึงชวนจองโรงแรม(self) -> None:
+        from core import friday as friday_mod
+
+        friday_mod.set_friday(self.conn, "2026-08-28", friday_mod.HOTEL)
+        ctx, rows, due = assemble.weekly_inputs(self.conn, SUN)
+        text = render_weekly(ctx, week_rows=rows, due_next_week=due)
+        self.assertIn("จองโรงแรมให้เลยไหมครับ?", text)
+        self.assertNotIn("ใช่ไหมครับ?\n", text.replace("จองโรงแรมให้เลยไหมครับ?", ""))
 
     def test_สัปดาห์หน้าที่กลับบ้าน_ไม่ถามเรื่องโรงแรม(self) -> None:
         SUN_HOME = datetime(2026, 8, 30, 20, 0)   # สัปดาห์หน้า = ศุกร์ 4 ก.ย. (home)

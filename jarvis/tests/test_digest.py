@@ -37,8 +37,12 @@ SUNDAY = datetime(2026, 8, 30, 20, 0)
 
 HOME_PLAN = FridayPlan(friday=date(2026, 8, 28), state="home", is_home=True, weeks_from_anchor=2)
 HOTEL_PLAN = FridayPlan(friday=date(2026, 8, 21), state="hotel", is_home=False, weeks_from_anchor=1)
+# ตัวอย่างสรุปสัปดาห์ใน kit จบด้วย "จองโรงแรมให้เลยไหมครับ?" ซึ่งจะถามได้ก็ต่อเมื่อ
+# รู้แน่แล้วว่าสัปดาห์นั้นอยู่เชียงใหม่ → ตัวอย่างนี้คือสัปดาห์ที่ "ยืนยันแล้ว"
+# (สัปดาห์ที่ยังไม่ยืนยันจะถามยืนยันก่อน ไม่ชวนจอง — ดู UnconfirmedFridayTest)
 NEXT_WEEK_HOTEL = FridayPlan(
-    friday=date(2026, 9, 4), state="hotel", is_home=False, weeks_from_anchor=3
+    friday=date(2026, 9, 4), state="hotel", is_home=False, weeks_from_anchor=3,
+    confirmed=True,
 )
 
 
@@ -451,3 +455,43 @@ class BannedWordTest(unittest.TestCase):
         ]
         for text in messages:
             assert_clean(self, text, "กวาดทุกแบบ")
+
+
+class UnconfirmedFridayTest(unittest.TestCase):
+    """ศุกร์ที่ยังไม่ยืนยัน → สรุปสัปดาห์ต้อง "ถาม" ไม่ใช่ "ประกาศ"
+
+    โอมบอกเองว่าเรื่องกลับบ้าน "แล้วแต่สถานการณ์" — ระบบที่ประกาศอย่างมั่นใจ
+    จากการสลับล้วนๆ จะพาไปจองผิดสัปดาห์ (โทษเดียวกับ H10)
+    """
+
+    def _weekly(self, plan) -> str:
+        return digest.render_weekly(
+            digest.DigestContext(when=localdate.now(datetime(2026, 8, 30, 20, 0)), friday=plan),
+            week_rows=[],
+            due_next_week=[],
+        )
+
+    def test_ยังไม่ยืนยันแล้วคาดว่าอยู่เชียงใหม่_ต้องถามยืนยัน_ไม่ชวนจอง(self) -> None:
+        plan = FridayPlan(friday=date(2026, 9, 4), state="hotel", is_home=False,
+                          weeks_from_anchor=3, confirmed=False)
+        out = self._weekly(plan)
+        self.assertIn("ศุกร์หน้าคาดว่าอยู่เชียงใหม่ 🏨 — ใช่ไหมครับ?", out)
+        self.assertNotIn("จองโรงแรม", out)
+
+    def test_ยังไม่ยืนยันแล้วคาดว่ากลับบ้าน_ก็ต้องถามเหมือนกัน(self) -> None:
+        plan = FridayPlan(friday=date(2026, 9, 4), state="home", is_home=True,
+                          weeks_from_anchor=3, confirmed=False)
+        self.assertIn("ศุกร์หน้าคาดว่ากลับบ้านจอมทอง 🏡 — ใช่ไหมครับ?", self._weekly(plan))
+
+    def test_ยืนยันแล้วว่ากลับบ้าน_ไม่ถามอะไรเลย(self) -> None:
+        plan = FridayPlan(friday=date(2026, 9, 4), state="home", is_home=True,
+                          weeks_from_anchor=3, confirmed=True)
+        out = self._weekly(plan)
+        self.assertNotIn("ใช่ไหมครับ", out)
+        self.assertNotIn("จองโรงแรม", out)
+
+    def test_ไม่รู้สถานะเลย_ไม่ถามอะไรทั้งนั้น(self) -> None:
+        # anchor ยังไม่กรอก → friday=None → เงียบ ดีกว่าถามเรื่องที่ยังไม่รู้ว่ามีจริงไหม
+        out = self._weekly(None)
+        self.assertNotIn("ใช่ไหมครับ", out)
+        self.assertNotIn("จองโรงแรม", out)

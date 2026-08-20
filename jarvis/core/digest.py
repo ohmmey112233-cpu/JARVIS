@@ -684,7 +684,15 @@ def render_weekly(
     if not rows and not due:
         blocks.append([WEEKLY_NOTHING])
 
-    if _attr(ctx.friday, "is_home") is False:
+    # ศุกร์ที่ยังไม่ยืนยัน = ยังเป็นแค่การคาดเดาจากการสลับสัปดาห์
+    # โอมบอกเองว่า "แล้วแต่สถานการณ์" → ต้องถาม ไม่ใช่ประกาศ
+    # และห้ามชวนจองโรงแรมทั้งที่ยังไม่รู้ว่าสัปดาห์นั้นอยู่ไหนจริง
+    is_home = _attr(ctx.friday, "is_home")
+    confirmed = bool(_attr(ctx.friday, "confirmed"))
+    if is_home is not None and not confirmed:
+        guess = "กลับบ้านจอมทอง 🏡" if is_home else "อยู่เชียงใหม่ 🏨"
+        blocks.append([f"ศุกร์หน้าคาดว่า{guess} — ใช่ไหมครับ?"])
+    elif is_home is False:
         blocks.append([HOTEL_QUESTION])
 
     return _join(blocks)

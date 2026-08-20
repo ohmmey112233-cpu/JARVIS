@@ -266,7 +266,7 @@ class FridayFromDbTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.conn = db.connect(":memory:")
-        db.migrate(self.conn, target_version=2)
+        db.migrate(self.conn)
         self.addCleanup(self.conn.close)
 
     def set_anchor(self, value: str) -> None:
@@ -368,7 +368,7 @@ class SushiroGateTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.conn = db.connect(":memory:")
-        db.migrate(self.conn, target_version=2)
+        db.migrate(self.conn)
         self.addCleanup(self.conn.close)
 
     def test_books_only_on_hotel_fridays(self) -> None:
@@ -376,13 +376,33 @@ class SushiroGateTest(unittest.TestCase):
         got = [
             friday.is_in_chiang_mai_on_friday(self.conn, day) for day in FRIDAYS[3:]
         ]
-        # anchor เป็นสัปดาห์กลับจอมทอง → ศุกร์เว้นศุกร์เท่านั้นที่จองได้
+        # ไม่มีศุกร์ไหนถูกยืนยัน → ประตูปิดหมด แม้การคาดเดาจะบอกว่าอยู่เชียงใหม่
+        # (H10: เดาผิดแล้ว no-show โดนแบน ต้นทุนสูงกว่าการไม่จองมาก)
+        self.assertEqual(got, [False] * 6)
+
+    def test_ยืนยันแล้วเท่านั้นจึงเปิดประตู(self) -> None:
+        db.set_pref(self.conn, friday.PREF_KEY, "2026-08-14:home")
+        hotel_friday = FRIDAYS[4]          # การคาดเดาบอกว่าอยู่เชียงใหม่
+        self.assertFalse(friday.is_in_chiang_mai_on_friday(self.conn, hotel_friday))
+        friday.set_friday(self.conn, hotel_friday, friday.HOTEL)
+        self.assertTrue(friday.is_in_chiang_mai_on_friday(self.conn, hotel_friday))
+        # ยืนยันว่ากลับบ้าน → ปิดประตูแม้เคยเปิดมาก่อน
+        friday.set_friday(self.conn, hotel_friday, friday.HOME)
+        self.assertFalse(friday.is_in_chiang_mai_on_friday(self.conn, hotel_friday))
+
+    def test_require_confirmed_False_กลับไปใช้การคาดเดา(self) -> None:
+        db.set_pref(self.conn, friday.PREF_KEY, "2026-08-14:home")
+        got = [
+            friday.is_in_chiang_mai_on_friday(self.conn, d, require_confirmed=False)
+            for d in FRIDAYS[3:]
+        ]
         self.assertEqual(got, [False, True, False, True, False, True])
 
     def test_hotel_anchor_flips_the_gate(self) -> None:
         db.set_pref(self.conn, friday.PREF_KEY, "2026-08-14:hotel")
         got = [
-            friday.is_in_chiang_mai_on_friday(self.conn, day) for day in FRIDAYS[3:]
+            friday.is_in_chiang_mai_on_friday(self.conn, day, require_confirmed=False)
+            for day in FRIDAYS[3:]
         ]
         self.assertEqual(got, [True, False, True, False, True, False])
 
@@ -394,7 +414,7 @@ class SushiroGateTest(unittest.TestCase):
             with self.subTest(day=day):
                 plan = friday.friday_state_from_db(self.conn, day)
                 self.assertEqual(
-                    friday.is_in_chiang_mai_on_friday(self.conn, day),
+                    friday.is_in_chiang_mai_on_friday(self.conn, day, require_confirmed=False),
                     not plan.is_home,
                 )
 

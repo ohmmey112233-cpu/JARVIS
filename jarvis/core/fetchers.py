@@ -37,7 +37,7 @@ from typing import Any
 from . import localdate
 from .db import PLACEHOLDERS
 
-__all__ = ["Transport", "fetch_extras", "BUFFER_MINUTES"]
+__all__ = ["Transport", "fetch_extras", "BUFFER_MINUTES", "ROUND_TO_MINUTES"]
 
 # สัญญาที่ตรึงไว้ใน CONTRACTS.md งวดที่ 2 — (url, params) -> parsed JSON
 Transport = Callable[[str, Mapping[str, str]], Any]
@@ -49,6 +49,9 @@ Transport = Callable[[str, Mapping[str, str]], Any]
 # หน้าโรงเรียนมงฟอร์ตช่วง 07:20-07:40 ที่แกว่งวันต่อวัน — ข้อความบอกว่า
 # "ออก HH:MM ถึงสบายๆ" (kit หลักการข้อ 6) จึงต้องเผื่อให้ "สบายๆ" เป็นจริง
 BUFFER_MINUTES = 10
+
+# ปัดเวลาออกให้เป็นเลขกลมๆ — ดู _leave_by() ว่าทำไม
+ROUND_TO_MINUTES = 5
 
 # หน้าต่างเช้าที่สนใจเรื่องฝน: ออกจากหอ ~07:1x ถึงเข้าแถว 08:20
 # ขยับขอบมาที่ 06:00-09:00 เผื่อฝนมาก่อน/ลากยาว (red-team ดู 07:00-07:40)
@@ -224,6 +227,13 @@ def _leave_by(prefs: Mapping[str, str], travel_minutes: int) -> str | None:
     if depart < 0:
         # ข้ามเที่ยงคืนแปลว่าค่าใดค่าหนึ่งเพี้ยน — ไม่พิมพ์ ดีกว่าบอกเวลาผี
         return None
+    # ปัดเป็นเลข 5 นาทีที่ใกล้ที่สุด — คนไม่ได้ออกจากบ้าน 07:13 คนออก 07:15
+    # ยืนยันกับตัวอย่างใน kit: จันทร์ (เดินทาง 12) → 07:13 ปัดเป็น 07:15 ✓
+    #                        พุธ  (เดินทาง 15) → 07:10 ตรงอยู่แล้ว     ✓
+    # ทั้งสองตัวอย่างตรงพอดีเมื่อปัดแบบนี้ ซึ่งเป็นหลักฐานว่า kit คิดแบบเดียวกัน
+    depart = int(round(depart / ROUND_TO_MINUTES) * ROUND_TO_MINUTES)
+    if depart >= 24 * 60:
+        return None
     return _minutes_to_hhmm(depart)
 
 
@@ -236,8 +246,11 @@ def _fetch_travel(
     key = env.get("GOOGLE_MAPS_API_KEY")
     if not key:
         return {}  # ไม่ได้ตั้งคีย์ = ตั้งใจไม่ใช้ ไม่ใช่ error
-    origin = _pref(prefs, "dorm_address")
-    destination = _pref(prefs, "school_address")
+    # พิกัดแม่นกว่าชื่อสถานที่เสมอ — ใช้ก่อนถ้ามี แล้วค่อยถอยไปใช้ชื่อ
+    # (ชื่ออำเภอกว้างๆ ทำให้ Google เดาจุดกลางอำเภอ เวลาเดินทางจะไม่ตรงกับ
+    #  ที่เปิด Maps ดูเอง ซึ่ง checklist B4 บังคับว่าต้องตรง)
+    origin = _pref(prefs, "dorm_latlng") or _pref(prefs, "dorm_address")
+    destination = _pref(prefs, "school_latlng") or _pref(prefs, "school_address")
     if not origin or not destination:
         # ที่อยู่ยังไม่กรอก — ยิง API ด้วยที่อยู่ว่างมีแต่จะได้ ZERO_RESULTS กลับมา
         return {}

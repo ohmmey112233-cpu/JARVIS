@@ -42,6 +42,9 @@
 
 ### ขั้นที่ 0 — เตรียมเครื่อง (ครั้งเดียว รันในฐานะ root)
 
+> 📋 **เพิ่งได้เครื่องมา?** เปิด [`docs/setup-when-mac-arrives.md`](docs/setup-when-mac-arrives.md)
+> — เช็คลิสต์เรียงลำดับตั้งแต่สมัคร API จนถึงเริ่ม gate trial ติ๊กไปทีละข้อได้เลย
+
 **ใช้ DigitalOcean:** ทำตาม [`docs/digitalocean-setup.md`](docs/digitalocean-setup.md) ตั้งแต่สร้าง droplet
 
 > ⛔ ต้องเป็น **Droplets** เท่านั้น — ห้ามใช้ **App Platform** เพราะดิสก์เป็นแบบชั่วคราว
@@ -221,6 +224,7 @@ scripts/
 config/
   jarvis.env.example         แม่แบบค่าลับ (คัดลอกเป็น jarvis.env แล้วกรอก)
 docs/
+  setup-when-mac-arrives.md  เช็คลิสต์ตอนได้เครื่องมา — สมัคร API → สร้าง droplet → gate trial
   digitalocean-setup.md      คู่มือ DigitalOcean ทีละคลิก ตั้งแต่สร้าง droplet
   gate-trial.md              ชุดทดสอบ 3 ข้อ + ตารางกรอกผล + เกณฑ์ตัดสิน
   architecture.md            ทำไมแยก core/ ออกจาก skills/ + ไหลของข้อมูล

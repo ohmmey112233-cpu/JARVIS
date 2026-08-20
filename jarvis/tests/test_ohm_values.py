@@ -24,11 +24,22 @@ class OhmValuesTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.conn.close()
 
-    def test_ไม่มี_placeholder_ค้างอยู่(self) -> None:
+    # พิกัดหอ/โรงเรียนยังไม่มี = digest ถอยไปใช้ชื่อสถานที่ ซึ่งยังทำงานได้
+    # ต่างจาก friday_anchor_date ที่ไม่มีแล้วระบบตอบผิดด้านเงียบๆ
+    OPTIONAL_PLACEHOLDERS = {"dorm_latlng", "school_latlng"}
+
+    def test_ไม่มี_placeholder_ที่บล็อกการทำงานค้างอยู่(self) -> None:
         rows = self.conn.execute(
             "SELECT key FROM preferences WHERE value IN ('', '[ต้องกรอก]')"
         ).fetchall()
-        self.assertEqual([r["key"] for r in rows], [], "ยังมี preference ที่ไม่ได้กรอก")
+        blocking = [r["key"] for r in rows if r["key"] not in self.OPTIONAL_PLACEHOLDERS]
+        self.assertEqual(blocking, [], "ยังมี preference ที่จำเป็นและไม่ได้กรอก")
+
+    def test_พิกัดบ้านถูกกรอกแล้วและอ่านเป็นตัวเลขได้(self) -> None:
+        raw = db.require_pref(self.conn, "home_latlng")
+        lat, _, lng = raw.partition(",")
+        self.assertAlmostEqual(float(lat), 18.45, places=1)
+        self.assertAlmostEqual(float(lng), 98.71, places=1)
 
     def test_anchor_เป็นวันศุกร์จริง(self) -> None:
         raw = db.require_pref(self.conn, friday.PREF_KEY)

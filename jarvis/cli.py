@@ -102,8 +102,19 @@ def cmd_memory(args: argparse.Namespace, conn) -> int:
 def cmd_friday(args: argparse.Namespace, conn) -> int:
     from core import friday
 
-    plan = friday.friday_state_from_db(conn)
-    return _out(_rows(plan))
+    action = getattr(args, "action", "state")
+    if action == "state":
+        return _out(_rows(friday.friday_state_from_db(conn, args.date)))
+    if action == "set":
+        if not args.state:
+            return _err("ต้องระบุ --state home หรือ --state hotel")
+        return _out(_rows(friday.set_friday(conn, args.date, args.state, args.note)))
+    if action == "clear":
+        return _out(_rows(friday.clear_friday(conn, args.date)))
+    if action == "pending":
+        # ศุกร์ข้างหน้าที่ยังไม่ยืนยัน — skill เอาไปถามโอม
+        return _out(_rows(friday.unconfirmed_fridays(conn, weeks=args.weeks)))
+    return _err(f"ไม่รู้จักคำสั่ง friday '{action}'")
 
 
 # --- booking -----------------------------------------------------------------
@@ -262,8 +273,13 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--confirm", action="store_true", help="ยืนยันลบจริง (ไม่ใส่ = แค่ดูว่าจะลบอะไร)")
     m.set_defaults(func=cmd_memory)
 
-    f = sub.add_parser("friday", help="ศุกร์สลับสัปดาห์")
-    f.add_argument("action", nargs="?", default="state", choices=["state"])
+    f = sub.add_parser("friday", help="ศุกร์กลับบ้าน/โรงแรม (คาดเดา + ยืนยันรายสัปดาห์)")
+    f.add_argument("action", nargs="?", default="state",
+                   choices=["state", "set", "clear", "pending"])
+    f.add_argument("--date", help="วันศุกร์ที่ต้องการ (ไม่ใส่ = สัปดาห์นี้)")
+    f.add_argument("--state", choices=["home", "hotel"], help="ใช้กับ set")
+    f.add_argument("--note", help="เหตุผล เช่น 'มีงานที่โรงเรียนเสาร์'")
+    f.add_argument("--weeks", type=int, default=3, help="ใช้กับ pending")
     f.set_defaults(func=cmd_friday)
 
     b = sub.add_parser("booking", help="การจอง")
