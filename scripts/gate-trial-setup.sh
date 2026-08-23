@@ -38,6 +38,33 @@ CFG_TZ=$(timeout 30 "$HERMES_BIN" config get timezone 2>/dev/null | tail -1)
      hermes config set timezone Asia/Bangkok && hermes gateway restart"
 ok "timezone = Asia/Bangkok"
 
+# job ข้างล่างใช้ `--deliver telegram` (ชื่อ platform เปล่าๆ ไม่ระบุ chat)
+# Hermes resolve ปลายทางจาก "home channel" เท่านั้น ถ้ายังไม่เคยตั้ง job จะรัน
+# สำเร็จ ตอบ completed ใน `cron runs` แต่ทิ้งผลเงียบๆ โดยมีแค่บรรทัดใน log ว่า
+#   "no delivery target resolved for deliver=telegram"
+# อาการนี้ดูเหมือนทุกอย่างปกติ กว่าจะรู้ตัวก็เสีย 3 วันของ trial ไปแล้ว
+HOME_OK=0
+[ -n "${TELEGRAM_HOME_CHANNEL:-}" ] && HOME_OK=1
+if [ "$HOME_OK" -eq 0 ] && [ -f "$HERMES_HOME/.env" ]; then
+  grep -qE '^\s*TELEGRAM_HOME_CHANNEL=.+' "$HERMES_HOME/.env" && HOME_OK=1
+fi
+if [ "$HOME_OK" -eq 0 ] && [ -f "$HERMES_HOME/config.yaml" ]; then
+  grep -A6 -E '^\s*home_channel:' "$HERMES_HOME/config.yaml" 2>/dev/null \
+    | grep -qE "platform:\s*[\"']?telegram" && HOME_OK=1
+fi
+[ "$HOME_OK" -eq 1 ] \
+  || die "ยังไม่ได้ตั้ง home channel ของ Telegram — digest จะส่งไม่ออก
+
+   แก้ก่อน: เปิดแชทกับบอทใน Telegram แล้วพิมพ์
+     /sethome
+
+   Hermes จะอ่าน chat id จากข้อความนั้นเองแล้วบันทึกลง config.yaml
+   (หรือกำหนดเองก็ได้: ใส่ TELEGRAM_HOME_CHANNEL=<chat_id> ใน $HERMES_HOME/.env
+    แล้ว hermes gateway restart)
+
+   ตั้งเสร็จแล้วรันสคริปต์นี้ใหม่"
+ok "home channel ของ Telegram ตั้งไว้แล้ว — digest มีปลายทางส่ง"
+
 # --- prompt ของ digest ------------------------------------------------------
 # cron job รันใน session ใหม่ที่ไม่มีความจำของแชทเดิม prompt ต้องอธิบายตัวเองครบ
 # Phase 0B ยังไม่มี custom skill / jarvis.db ตัว digest จริงตามแบบใน phase1-kit
