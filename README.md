@@ -42,6 +42,8 @@
 
 ### ขั้นที่ 0 — เตรียมเครื่อง (ครั้งเดียว รันในฐานะ root)
 
+> 🗺 **ดูภาพรวมไฟล์ทั้งหมด:** [`docs/FILEMAP.md`](docs/FILEMAP.md)
+>
 > 📋 **เพิ่งได้เครื่องมา?** เปิด [`docs/setup-when-mac-arrives.md`](docs/setup-when-mac-arrives.md)
 > — เช็คลิสต์เรียงลำดับตั้งแต่สมัคร API จนถึงเริ่ม gate trial ติ๊กไปทีละข้อได้เลย
 
