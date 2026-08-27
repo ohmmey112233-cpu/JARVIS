@@ -15,6 +15,12 @@ HERMES_BIN="$HERMES_SRC/venv/bin/hermes"
 VERSION_LOCK="$HERMES_HOME/jarvis-version.lock"
 REPO_URL="https://github.com/NousResearch/hermes-agent.git"
 
+# installer ของ Hermes วาง uv ไว้ที่ ~/.local/bin ซึ่ง PATH จะมีก็ต่อเมื่อ shell
+# ได้ source ~/.profile — shell แบบ non-interactive (`ssh host 'bash script.sh'`,
+# cron, systemd) ไม่ได้ source จึงหา uv ไม่เจอ และขั้นตอนติดตั้ง extras ข้างล่าง
+# ล้มด้วย "uv: command not found" ทั้งที่ uv ติดตั้งอยู่แล้ว
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
 C_OK=$'\033[0;32m'; C_WARN=$'\033[0;33m'; C_ERR=$'\033[0;31m'; C_INFO=$'\033[0;36m'; C_OFF=$'\033[0m'
 ok()   { echo "${C_OK}✓${C_OFF} $*"; }
 info() { echo "${C_INFO}→${C_OFF} $*"; }
@@ -116,10 +122,15 @@ if [ -x "$VENV_PY" ]; then
   "$VENV_PY" -c 'import telegram'  2>/dev/null || MISSING="$MISSING messaging"
   if [ -n "$MISSING" ]; then
     warn "ขาด extras:$MISSING — กำลังติดตั้งเพิ่ม..."
+    # venv ที่ uv สร้างไม่มี pip ติดมาด้วย ทางสำรองเดิมจึงพังเสมอด้วย
+    # "No module named pip" — ต้อง ensurepip ก่อนถึงจะเป็นทางสำรองได้จริง
     ( cd "$HERMES_SRC" && UV_NO_CONFIG=1 VIRTUAL_ENV="$HERMES_SRC/venv" \
         uv pip install -e ".[anthropic,messaging]" ) \
-      || "$VENV_PY" -m pip install -e "${HERMES_SRC}[anthropic,messaging]" \
-      || die "ติดตั้ง extras ไม่สำเร็จ — ต้องมี anthropic + python-telegram-bot ก่อนไปขั้นที่ 2"
+      || { "$VENV_PY" -m ensurepip --upgrade >/dev/null 2>&1 || true
+           "$VENV_PY" -m pip install -e "${HERMES_SRC}[anthropic,messaging]"; } \
+      || die "ติดตั้ง extras ไม่สำเร็จ — ต้องมี anthropic + python-telegram-bot ก่อนไปขั้นที่ 2
+   ถ้าขึ้น 'uv: command not found' แปลว่า uv ไม่อยู่ใน PATH — ลอง:
+     export PATH=\"\$HOME/.local/bin:\$PATH\" && bash scripts/01-install-hermes.sh"
     ok "ติดตั้ง extras เพิ่มเรียบร้อย"
   else
     ok "dependency ครบ (anthropic SDK + python-telegram-bot)"

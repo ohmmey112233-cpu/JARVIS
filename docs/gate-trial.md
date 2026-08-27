@@ -20,6 +20,8 @@
 
 ## เตรียมก่อนเริ่ม
 
+**ก่อนอื่น** เปิดแชทกับบอทใน Telegram แล้วพิมพ์ `/sethome` หนึ่งครั้ง — ถ้าข้ามขั้นนี้ cron จะรันสำเร็จแต่ไม่ส่งอะไรออกมาเลย (log ขึ้น `no delivery target resolved for deliver=telegram`) `gate-trial-setup.sh` เช็คให้แล้วและจะหยุดเองถ้ายังไม่ได้ตั้ง
+
 ```bash
 bash scripts/verify-phase0b.sh          # ต้องไม่มี ✗ เหลือ
 bash scripts/gate-trial-setup.sh --smoke

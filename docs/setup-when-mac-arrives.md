@@ -71,6 +71,12 @@ bash scripts/verify-phase0b.sh                # ต้องไม่มี ✗ 
 ```
 
 - [ ] ทักบอทใน Telegram พิมพ์ "สวัสดี" → ตอบไทยกลับมา
+- [ ] ⚠️ **ในแชทเดิมนั้น พิมพ์ `/sethome`** — ห้ามข้าม
+
+> `/sethome` บอก Hermes ว่า "ส่ง digest มาที่แชทนี้" — cron ใช้ `--deliver telegram`
+> ซึ่งไม่ได้ระบุ chat id ไว้ มันหาปลายทางจาก home channel อย่างเดียว **ถ้าไม่ตั้ง
+> digest จะไม่ถูกส่งออกเลย** โดยที่ `cron runs` ยังขึ้น `completed` เหมือนปกติ
+> มีแค่บรรทัดเดียวใน log ว่า `no delivery target resolved for deliver=telegram`
 
 ---
 
