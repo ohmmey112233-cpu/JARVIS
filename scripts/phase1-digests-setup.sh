@@ -134,8 +134,19 @@ register_job() {
     return 0
   fi
   info "สร้าง job $name — $note ..."
-  timeout 60 "$HERMES_BIN" cron create "$schedule" \
-    --name "$name" --no-agent --script "$script_path" --deliver telegram 2>&1 | sed 's/^/    /'
+  # Hermes รับเฉพาะ "ชื่อไฟล์" ที่วางอยู่ใน ~/.hermes/scripts/ เท่านั้น ส่ง path
+  # เต็มไปจะถูกปฏิเสธ: "Script path must be relative to ~/.hermes/scripts/"
+  local script_name; script_name=$(basename "$script_path")
+  # ห้าม pipe ตรงเข้า sed — exit code จะกลายเป็นของ sed แล้ว job ที่สร้างไม่สำเร็จ
+  # จะถูกรายงานว่า ✓ สำเร็จ (เงียบสนิทจนกว่าจะถึงเช้าที่ digest ไม่มา)
+  local out rc
+  out=$(timeout 60 "$HERMES_BIN" cron create "$schedule" \
+          --name "$name" --no-agent --script "$script_name" --deliver telegram 2>&1)
+  rc=$?
+  printf '%s\n' "$out" | sed 's/^/    /'
+  if [ "$rc" -ne 0 ] || printf '%s' "$out" | grep -qi "failed to create job"; then
+    die "สร้าง job '$name' ไม่สำเร็จ — ดูข้อความข้างบน (ยังไม่ได้ตั้ง job ที่เหลือ)"
+  fi
   ok "สร้าง job $name แล้ว"
 }
 
